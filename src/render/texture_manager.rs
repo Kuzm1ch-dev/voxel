@@ -39,7 +39,6 @@ impl ChunkTextureAtlas {
                 }
             }
         }
-
         let texture_indices: Vec<String> = unique_textures.into_iter().collect();
         let texture_count = texture_indices.len() as u32;
 
@@ -61,7 +60,8 @@ impl ChunkTextureAtlas {
 
         // Load and copy each texture into the array
         for (i, texture_name) in texture_indices.iter().enumerate() {
-            let texture_path = Path::new("assets/textures").join(format!("{}.png", texture_name));
+            println!("{}",texture_name);
+            let texture_path = Path::new("assets/textures/blocks").join(format!("{}.png", texture_name));
             let img = image::open(texture_path).unwrap().to_rgba8();
             
             queue.write_texture(

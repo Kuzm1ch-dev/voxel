@@ -13,6 +13,7 @@ use winit::window::Window;
 use crate::img_utils::RgbaImg;
 use crate::model::vertex::Vertex;
 use crate::render::camera::{BoundingBox, Camera};
+use crate::render::texture_manager::ChunkTextureAtlas;
 use wgpu::{BufferDescriptor, SamplerDescriptor, ShaderSource, TextureView};
 
 use super::block::BlockType;
@@ -50,7 +51,7 @@ struct AdjacentChunks<'a> {
 pub struct Chunk {
     position: IVec3, // Chunk position in world space
     blocks: Vec<Option<BlockType>>,
-    needs_mesh_update: bool,
+    needs_mesh_update: bool
 }
 
 impl Chunk {
@@ -94,14 +95,15 @@ impl Chunk {
         vertices: &mut Vec<Vertex>,
         indices: &mut Vec<u16>,
         adjacent_chunks: Option<&AdjacentChunks>,
-        block_registry: &Arc<BlockRegistry>
+        block_registry: &Arc<BlockRegistry>,
+        atlas: &ChunkTextureAtlas
     ) {
         //let block_type = self.blocks[x][y][z].clone();
         let base_index = vertices.len() as u16;
         let world_x = self.position.x * CHUNK_SIZE_X as i32 + x as i32;
         let world_y = self.position.y * CHUNK_SIZE_Y as i32 + y as i32;
         let world_z = self.position.z * CHUNK_SIZE_Z as i32 + z as i32;
-
+        let block = self.get_block(x, y, z).unwrap();
         // Convert to coordinates for should_render_face
         let check_pos = (x as i32, y as i32, z as i32);
         const FACES: [(Direction, [f32; 3], [(f32, f32, f32); 4], [(f32, f32); 4]); 6] = [
@@ -186,7 +188,14 @@ impl Chunk {
     
             if self.should_render_face(check_x, check_y, check_z, adjacent_chunks, direction) {
                 let base_index = vertices.len() as u16;
-                
+                let face_texture = match direction {
+                    Direction::Up => block.textures.top.clone(),
+                    Direction::Down => block.textures.bottom.clone(),
+                    Direction::South => block.textures.back.clone(), 
+                    Direction::North => block.textures.front.clone(), 
+                    Direction::East => block.textures.left.clone(), 
+                    Direction::West => block.textures.right.clone(), 
+                };
                 // Add vertices for this face
                 for i in 0..4 {
                     vertices.push(Vertex::new(
@@ -197,6 +206,7 @@ impl Chunk {
                         ],
                         normal,
                         [uvs[i].0, uvs[i].1],
+                        atlas.get_texture_index(face_texture.as_str()).unwrap()
                     ));
                 }
                 
@@ -290,23 +300,21 @@ impl Chunk {
     // Generate mesh data for the chunk
     fn generate_mesh_data(
         &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
         adjacent_chunks: Option<&AdjacentChunks>,
         block_registry: &Arc<BlockRegistry>
     ) -> (Vec<Vertex>, Vec<u16>) {
         let mut vertices = Vec::new();
-        let mut indices = Vec::new();
-
+        let mut indices: Vec<u16> = Vec::new();
+        let atlas = ChunkTextureAtlas::new(device, queue, self, block_registry);
         for x in 0..CHUNK_SIZE_X {
             for y in 0..CHUNK_SIZE_Y {
                 for z in 0..CHUNK_SIZE_Z {
                     if self.get_block(x, y, z) == None {
                         continue;
                     }
-
-                    // Check each face of the current block
-                    // Only add faces that are adjacent to air or chunk boundaries
-                    // This is where you implement face culling
-                    self.add_block_faces(x, y, z, &mut vertices, &mut indices, adjacent_chunks, block_registry);
+                    self.add_block_faces(x, y, z, &mut vertices, &mut indices, adjacent_chunks, block_registry, &atlas);
                 }
             }
         }
@@ -469,7 +477,7 @@ impl ChunkManager {
             if let Some(chunk_pos) = self.update_queue.pop_front() {
                 if let Some(chunk) = self.chunks.get(&chunk_pos) {
                     let adjacent_chunks = self.get_adjacent_chunks(chunk_pos);
-                    let (vertices, indices) = chunk.generate_mesh_data(Some(&adjacent_chunks), &self.block_registry);
+                    let (vertices, indices) = chunk.generate_mesh_data(&self.device, &self.queue, Some(&adjacent_chunks), &self.block_registry);
 
                     if vertices.is_empty() {
                         self.mesh_manager.remove_mesh(&chunk_pos);
