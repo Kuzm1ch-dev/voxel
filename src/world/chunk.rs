@@ -1,4 +1,6 @@
 use glam::IVec3;
+use wgpu::naga::Block;
+use std::array;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
@@ -12,6 +14,9 @@ use crate::img_utils::RgbaImg;
 use crate::model::vertex::Vertex;
 use crate::render::camera::{BoundingBox, Camera};
 use wgpu::{BufferDescriptor, SamplerDescriptor, ShaderSource, TextureView};
+
+use super::block::BlockType;
+use super::block_registry::{self, BlockRegistry};
 
 pub const CHUNK_SIZE_X: usize = 16;
 pub const CHUNK_SIZE_Y: usize = 256;
@@ -40,27 +45,26 @@ struct AdjacentChunks<'a> {
     down: Option<&'a Chunk>,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum BlockType {
-    Air,
-    Dirt,
-    Grass,
-    Stone,
-    // ... other block types
-}
 
 #[derive(Debug)]
 pub struct Chunk {
     position: IVec3, // Chunk position in world space
-    blocks: Box<[[[BlockType; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]>,
+    blocks: Box<[[[Option<BlockType>; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]>,
     needs_mesh_update: bool,
 }
 
 impl Chunk {
     pub fn new(position: IVec3) -> Self {
+        let blocks = Box::new(array::from_fn(|_| {
+            array::from_fn(|_| {
+                array::from_fn(|_| {
+                    None
+                })
+            })
+        }));
         Self {
             position,
-            blocks: Box::new([[[BlockType::Air; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]),
+            blocks: blocks,
             needs_mesh_update: true,
         }
     }
@@ -73,7 +77,7 @@ impl Chunk {
         indices: &mut Vec<u16>,
         adjacent_chunks: Option<&AdjacentChunks>,
     ) {
-        let block_type = self.blocks[x][y][z];
+        //let block_type = self.blocks[x][y][z].clone();
         let base_index = vertices.len() as u16;
         let world_x = self.position.x * CHUNK_SIZE_X as i32 + x as i32;
         let world_y = self.position.y * CHUNK_SIZE_Y as i32 + y as i32;
@@ -206,7 +210,7 @@ impl Chunk {
             && z >= 0
             && z < CHUNK_SIZE_Z as i32
         {
-            return self.blocks[x as usize][y as usize][z as usize] == BlockType::Air;
+            return self.blocks[x as usize][y as usize][z as usize] == None;
         }
 
         // If we're at a chunk boundary, check the adjacent chunk
@@ -257,7 +261,7 @@ impl Chunk {
                 _ => return false,
             };
 
-            chunk.blocks[new_x][new_y][new_z] == BlockType::Air
+            chunk.blocks[new_x][new_y][new_z] == None
         } else {
             // If no adjacent chunks are provided, render the face
             true
@@ -275,7 +279,7 @@ impl Chunk {
         for x in 0..CHUNK_SIZE_X {
             for y in 0..CHUNK_SIZE_Y {
                 for z in 0..CHUNK_SIZE_Z {
-                    if self.blocks[x][y][z] == BlockType::Air {
+                    if self.blocks[x][y][z] == None {
                         continue;
                     }
 
@@ -412,7 +416,7 @@ impl ChunkManager {
     pub fn update_chunk(
         &mut self,
         position: IVec3,
-        blocks: Box<[[[BlockType; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]>,
+        blocks: Box<[[[Option<BlockType>; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]>,
     ) {
         // Update chunk data
         if let Some(chunk) = self.chunks.get_mut(&position) {

@@ -1,6 +1,7 @@
 use glam::{IVec3, Vec3};
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 use wgpu::util::DeviceExt;
@@ -10,6 +11,8 @@ use winit::window::Window;
 
 use crate::img_utils::RgbaImg;
 use crate::model::vertex::Vertex;
+use crate::world::block::BlockTextures;
+use crate::world::block_registry::BlockRegistry;
 use crate::world::chunk::ChunkManager;
 use crate::world::world::World;
 use wgpu::{BufferDescriptor, SamplerDescriptor, ShaderSource, TextureFormat, TextureView};
@@ -52,6 +55,7 @@ pub struct Renderer<'window> {
     light_view_bind_group: wgpu::BindGroup,
 
     world: World,
+    block_registry: Arc<BlockRegistry>,
     window_size: winit::dpi::PhysicalSize<u32>,
 }
 
@@ -61,6 +65,7 @@ impl<'window> Renderer<'window> {
     }
 
     pub async fn new_async(window: Arc<Window>) -> Self {
+
         let instance = wgpu::Instance::default();
         let surface = instance.create_surface(Arc::clone(&window)).unwrap();
         let adapter = instance
@@ -92,7 +97,6 @@ impl<'window> Renderer<'window> {
         let width = size.width.max(1);
         let height = size.height.max(1);
         let surface_config = surface.get_default_config(&adapter, width, height).unwrap();
-        println!("Surface config: {:?}", surface_config);
         surface.configure(&device, &surface_config);
         //Camera
         let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -295,8 +299,36 @@ impl<'window> Renderer<'window> {
         // Create Chunk Manager
         let arc_device = Arc::new(device);
         let arc_queue = Arc::new(queue);
-        let mut world = World::new(arc_device.clone(), arc_queue.clone());
-        world.create_initial_chunks();
+        let mut block_registry = BlockRegistry::new(arc_device.clone());
+        //Init blocks
+        let _ = block_registry.register_block(
+            &arc_device,
+            &arc_queue,
+            "grass",
+            BlockTextures::uniform("grass".to_string()),
+            Path::new("assets/textures/blocks"),
+        );
+        let _ =  block_registry.register_block(
+            &arc_device,
+            &arc_queue,
+            "dirt",
+            BlockTextures::uniform("dirt".to_string()),
+            Path::new("assets/textures/blocks"),
+        );
+        let _ = block_registry.register_block(
+            &arc_device,
+            &arc_queue,
+            "stone",
+            BlockTextures::uniform("dirt".to_string()),
+            Path::new("assets/textures/blocks"),
+        );
+        let arc_block_registry = Arc::new(block_registry);
+        //
+
+        let mut world = World::new(arc_block_registry.clone(),arc_device.clone(), arc_queue.clone());
+        println!("1");
+        world.create_initial_chunks(1);
+        println!("2");
         let model: glam::Mat4 = glam::Mat4::from_rotation_x(camera_controller.rotation_x)
             * glam::Mat4::from_rotation_y(camera_controller.rotation_y)
             * glam::Mat4::from_rotation_z(camera_controller.rotation_z);
@@ -341,6 +373,7 @@ impl<'window> Renderer<'window> {
             light_view_bind_group,
 
             world,
+            block_registry: arc_block_registry,
             window_size: size,
         }
     }

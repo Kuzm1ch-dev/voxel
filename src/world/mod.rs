@@ -1,3 +1,4 @@
 pub mod chunk;
-pub mod render;
 pub mod world;
+pub mod block;
+pub mod block_registry;
