@@ -16,11 +16,13 @@ use wgpu::{BufferDescriptor, SamplerDescriptor, ShaderSource, TextureFormat, Tex
 
 use super::camera::{Camera, CameraController, CameraUniform};
 use super::light::{LightUniform, LightViewProj};
+use super::profiler::{self, ProfileScope, Profiler};
 
 // Usage in main renderer
 pub struct Renderer<'window> {
     start_time: Instant,
     running_time: f32,
+    profiler: Profiler,
     surface: wgpu::Surface<'window>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
@@ -90,6 +92,7 @@ impl<'window> Renderer<'window> {
         let width = size.width.max(1);
         let height = size.height.max(1);
         let surface_config = surface.get_default_config(&adapter, width, height).unwrap();
+        println!("Surface config: {:?}", surface_config);
         surface.configure(&device, &surface_config);
         //Camera
         let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -305,10 +308,11 @@ impl<'window> Renderer<'window> {
 
         let start_time = Instant::now();
         let running_time = 0.0;
-
+        let profiler = Profiler::new();
         Self {
             start_time,
             running_time,
+            profiler,
             surface,
             device: arc_device,
             queue: arc_queue,
@@ -391,6 +395,9 @@ impl<'window> Renderer<'window> {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        self.device.poll(wgpu::Maintain::Wait);
+        self.profiler.start_frame();
+        self.profiler.begin_scope("Main Pass");
         let delta_time = self.start_time.elapsed().as_secs_f32() - self.running_time;
         self.running_time += delta_time;
         self.update(delta_time);
@@ -406,6 +413,7 @@ impl<'window> Renderer<'window> {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         self.world.process_mesh_updates();
         {
+            let _shadow_scope = ProfileScope::new("Shadow Pass", &mut self.profiler);
             let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Shadow Pass"),
                 color_attachments: &[], // No color attachments for shadow pass
@@ -420,11 +428,13 @@ impl<'window> Renderer<'window> {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+
             shadow_pass.set_pipeline(&self.shadow_pipeline);
             shadow_pass.set_bind_group(0, &self.light_view_bind_group, &[]);
             self.world.render(&mut shadow_pass, &mut self.camera);
         }
         {
+            let _render_scope = ProfileScope::new("Render Pass", &mut self.profiler);
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -462,10 +472,10 @@ impl<'window> Renderer<'window> {
             //rpass.draw_indexed(0..vertex_index_list.len() as u32, 0, 0..1);
             //rpass.draw(0..vertex_list.len() as u32, 0..1);
         }
-
         self.queue.submit(std::iter::once(encoder.finish()));
         surface_texture.present();
-
+        self.profiler.end_scope("Main Pass");
+        self.profiler.end_frame();
         Ok(())
     }
 
