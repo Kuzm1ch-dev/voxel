@@ -76,7 +76,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             );
         }
     }
-    shadow /= 9.0; // Average the samples
+    shadow /= 4.0; // Average the samples
     
     // Calculate lighting
     let ambient = light.color.xyz * light.params.y; // ambient_strength is params.y

@@ -6,7 +6,8 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::PhysicalKey;
 use winit::window::{Window, WindowId};
 
-use crate::world::render::Renderer;
+use crate::render::renderer::Renderer;
+
 
 #[derive(Default)]
 pub struct App<'window> {
