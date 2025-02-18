@@ -2,7 +2,7 @@ use std::{array, sync::Arc};
 
 use glam::IVec3;
 
-use crate::{render::camera::Camera, world::{block::BlockType, chunk::{CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z}}};
+use crate::{render::camera::Camera, world::{block::BlockType, chunk::{Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z}}};
 
 use super::{block_registry::{self, BlockRegistry}, chunk::ChunkManager};
 
@@ -13,9 +13,10 @@ pub struct World {
 
 impl World {
     pub fn new(block_registry: Arc<BlockRegistry>,device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+        let arc_block_registry = block_registry.clone();
         Self {
             block_registry,
-            chunk_manager: ChunkManager::new(device, queue),
+            chunk_manager: ChunkManager::new(device, queue, arc_block_registry),
         }
     }
 
@@ -48,15 +49,12 @@ impl World {
         &mut self,
         chunk_x: i32,
         chunk_z: i32,
-    ) -> Box<[[[Option<BlockType>; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]> {
+    ) -> Vec<Option<BlockType>> {
         println!("blocks start");
-        let mut blocks = Box::new(array::from_fn(|_| {
-            array::from_fn(|_| {
-                array::from_fn(|_| {
-                    None
-                })
-            })
-        }));
+        let mut blocks = vec![
+            None;
+            CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z
+        ];
         println!("blocks");
         // Generate some test terrain
         for x in 0..CHUNK_SIZE_X {
@@ -70,7 +68,8 @@ impl World {
 
                 // Fill blocks up to the height
                 for y in 0..height.min(CHUNK_SIZE_Y) {
-                    blocks[x][y][z] = if y == height - 1 {
+                    let index = Chunk::get_index(x, y, z);
+                    blocks[index] = if y == height - 1 {
                         self.block_registry.get_block("grass")
                     } else if y > height - 4 {
                         self.block_registry.get_block("dirt")

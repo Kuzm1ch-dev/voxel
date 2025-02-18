@@ -49,25 +49,43 @@ struct AdjacentChunks<'a> {
 #[derive(Debug)]
 pub struct Chunk {
     position: IVec3, // Chunk position in world space
-    blocks: Box<[[[Option<BlockType>; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]>,
+    blocks: Vec<Option<BlockType>>,
     needs_mesh_update: bool,
 }
 
 impl Chunk {
     pub fn new(position: IVec3) -> Self {
-        let blocks = Box::new(array::from_fn(|_| {
-            array::from_fn(|_| {
-                array::from_fn(|_| {
-                    None
-                })
-            })
-        }));
+        let blocks = vec![
+            None;
+            CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z
+        ];
         Self {
             position,
             blocks: blocks,
             needs_mesh_update: true,
         }
     }
+
+    pub fn get_index(x: usize, y: usize, z: usize) -> usize {
+        x * (CHUNK_SIZE_Y * CHUNK_SIZE_Z) + y * CHUNK_SIZE_Z + z
+    }
+
+    pub fn get_block(&self, x: usize, y: usize, z: usize) -> Option<&BlockType> {
+        if x >= CHUNK_SIZE_X || y >= CHUNK_SIZE_Y || z >= CHUNK_SIZE_Z {
+            return None;
+        }
+        let index = Self::get_index(x, y, z);
+        self.blocks.get(index)?.as_ref()
+    }
+
+    pub fn set_block(&mut self, x: usize, y: usize, z: usize, block: Option<BlockType>) {
+        if x < CHUNK_SIZE_X && y < CHUNK_SIZE_Y && z < CHUNK_SIZE_Z {
+            let index = Self::get_index(x, y, z);
+            self.blocks[index] = block;
+            self.needs_mesh_update = true;
+        }
+    }
+
     fn add_block_faces(
         &self,
         x: usize,
@@ -76,6 +94,7 @@ impl Chunk {
         vertices: &mut Vec<Vertex>,
         indices: &mut Vec<u16>,
         adjacent_chunks: Option<&AdjacentChunks>,
+        block_registry: &Arc<BlockRegistry>
     ) {
         //let block_type = self.blocks[x][y][z].clone();
         let base_index = vertices.len() as u16;
@@ -180,7 +199,7 @@ impl Chunk {
                         [uvs[i].0, uvs[i].1],
                     ));
                 }
-    
+                
                 // Add indices for this face
                 indices.extend_from_slice(&[
                     base_index,
@@ -193,7 +212,7 @@ impl Chunk {
             }
         }
     }
-
+    
     fn should_render_face(
         &self,
         x: i32,
@@ -210,7 +229,7 @@ impl Chunk {
             && z >= 0
             && z < CHUNK_SIZE_Z as i32
         {
-            return self.blocks[x as usize][y as usize][z as usize] == None;
+            return self.get_block(x as usize, y as usize, z as usize) == None;
         }
 
         // If we're at a chunk boundary, check the adjacent chunk
@@ -261,7 +280,7 @@ impl Chunk {
                 _ => return false,
             };
 
-            chunk.blocks[new_x][new_y][new_z] == None
+            chunk.get_block(new_x, new_y, new_z)== None
         } else {
             // If no adjacent chunks are provided, render the face
             true
@@ -272,6 +291,7 @@ impl Chunk {
     fn generate_mesh_data(
         &self,
         adjacent_chunks: Option<&AdjacentChunks>,
+        block_registry: &Arc<BlockRegistry>
     ) -> (Vec<Vertex>, Vec<u16>) {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
@@ -279,14 +299,14 @@ impl Chunk {
         for x in 0..CHUNK_SIZE_X {
             for y in 0..CHUNK_SIZE_Y {
                 for z in 0..CHUNK_SIZE_Z {
-                    if self.blocks[x][y][z] == None {
+                    if self.get_block(x, y, z) == None {
                         continue;
                     }
 
                     // Check each face of the current block
                     // Only add faces that are adjacent to air or chunk boundaries
                     // This is where you implement face culling
-                    self.add_block_faces(x, y, z, &mut vertices, &mut indices, adjacent_chunks);
+                    self.add_block_faces(x, y, z, &mut vertices, &mut indices, adjacent_chunks, block_registry);
                 }
             }
         }
@@ -400,23 +420,25 @@ pub struct ChunkManager {
     update_queue: VecDeque<IVec3>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
+    block_registry: Arc<BlockRegistry>
 }
 
 impl ChunkManager {
-    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>, block_registry: Arc<BlockRegistry>) -> Self {
         Self {
             chunks: HashMap::new(),
             mesh_manager: ChunkMeshManager::new(device.clone(), queue.clone()),
             update_queue: VecDeque::new(),
             device,
             queue,
+            block_registry
         }
     }
 
     pub fn update_chunk(
         &mut self,
         position: IVec3,
-        blocks: Box<[[[Option<BlockType>; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]>,
+        blocks: Vec<Option<BlockType>>,
     ) {
         // Update chunk data
         if let Some(chunk) = self.chunks.get_mut(&position) {
@@ -447,7 +469,7 @@ impl ChunkManager {
             if let Some(chunk_pos) = self.update_queue.pop_front() {
                 if let Some(chunk) = self.chunks.get(&chunk_pos) {
                     let adjacent_chunks = self.get_adjacent_chunks(chunk_pos);
-                    let (vertices, indices) = chunk.generate_mesh_data(Some(&adjacent_chunks));
+                    let (vertices, indices) = chunk.generate_mesh_data(Some(&adjacent_chunks), &self.block_registry);
 
                     if vertices.is_empty() {
                         self.mesh_manager.remove_mesh(&chunk_pos);

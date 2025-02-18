@@ -6,6 +6,7 @@ pub struct Vertex {
     position: [f32; 3],
     normal: [f32; 3],
     uv: [f32; 2],
+    tex_index: u32,
 }
 
 impl Vertex {
@@ -36,11 +37,12 @@ impl Vertex {
         }
     }
 
-    pub fn new(position: [f32; 3], normal: [f32; 3], uv: [f32; 2]) -> Self {
+    pub fn new(position: [f32; 3], normal: [f32; 3], uv: [f32; 2], tex_index: u32) -> Self {
         Self {
             position,
             normal,
             uv,
+            tex_index
         }
     }
 }

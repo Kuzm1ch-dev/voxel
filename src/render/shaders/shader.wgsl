@@ -18,7 +18,10 @@ struct LightViewProj {
 @group(2) @binding(0) var shadow_texture: texture_depth_2d;
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
 @group(3) @binding(0) var<uniform> light_view_proj: LightViewProj;
-
+@group(4) @binding(0)
+var t_diffuse: texture_2d<f32>;
+@group(4) @binding(1)
+var s_diffuse: sampler;
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
