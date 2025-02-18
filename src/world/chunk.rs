@@ -2,6 +2,8 @@ use glam::IVec3;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 use winit::window::Window;
@@ -17,7 +19,7 @@ const POOL_INITIAL_SIZE: usize = 64;
 const MAX_VERTICES_PER_CHUNK: usize = CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z * 24; // 24 vertices per block worst case
 const MAX_INDICES_PER_CHUNK: usize = CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z * 36; // 36 indices per block worst case
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, EnumIter)]
 enum Direction {
     North,
     South,
@@ -75,220 +77,116 @@ impl Chunk {
         let world_x = self.position.x * CHUNK_SIZE_X as i32 + x as i32;
         let world_y = self.position.y * CHUNK_SIZE_Y as i32 + y as i32;
         let world_z = self.position.z * CHUNK_SIZE_Z as i32 + z as i32;
-    
+
         // Convert to coordinates for should_render_face
-        let (check_x, check_y, check_z) = (x as i32, y as i32, z as i32);
-
-        // Check each face direction
-    // Top face
-    if self.should_render_face(check_x, check_y + 1, check_z, adjacent_chunks, Direction::Up) {
-        let y_offset = 1.0;
-        vertices.extend_from_slice(&[
-            Vertex::new(
-                [world_x as f32, world_y as f32 + y_offset, world_z as f32],
+        let check_pos = (x as i32, y as i32, z as i32);
+        const FACES: [(Direction, [f32; 3], [(f32, f32, f32); 4], [(f32, f32); 4]); 6] = [
+            // Direction,    Normal,         Vertex positions,                                  UV coords
+            (
+                Direction::Up,
                 [0.0, 1.0, 0.0],
-                [0.0, 0.0],
+                [
+                    (0.0, 1.0, 0.0),
+                    (1.0, 1.0, 0.0),
+                    (1.0, 1.0, 1.0),
+                    (0.0, 1.0, 1.0),
+                ],
+                [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
             ),
-            Vertex::new(
-                [world_x as f32 + 1.0, world_y as f32 + y_offset, world_z as f32],
-                [0.0, 1.0, 0.0],
-                [1.0, 0.0],
-            ),
-            Vertex::new(
-                [world_x as f32 + 1.0, world_y as f32 + y_offset, world_z as f32 + 1.0],
-                [0.0, 1.0, 0.0],
-                [1.0, 1.0],
-            ),
-            Vertex::new(
-                [world_x as f32, world_y as f32 + y_offset, world_z as f32 + 1.0],
-                [0.0, 1.0, 0.0],
-                [0.0, 1.0],
-            ),
-        ]);
-        indices.extend_from_slice(&[
-            base_index,
-            base_index + 1,
-            base_index + 2,
-            base_index + 2,
-            base_index + 3,
-            base_index,
-        ]);
-    }
-
-    // Bottom face
-    if self.should_render_face(check_x, check_y - 1, check_z, adjacent_chunks, Direction::Down) {
-        let base_index = vertices.len() as u16;
-        vertices.extend_from_slice(&[
-            Vertex::new(
-                [world_x as f32, world_y as f32, world_z as f32],
+            (
+                Direction::Down,
                 [0.0, -1.0, 0.0],
-                [0.0, 0.0],
+                [
+                    (0.0, 0.0, 0.0),
+                    (0.0, 0.0, 1.0),
+                    (1.0, 0.0, 1.0),
+                    (1.0, 0.0, 0.0),
+                ],
+                [(0.0, 0.0), (0.0, 1.0), (1.0, 1.0), (1.0, 0.0)],
             ),
-            Vertex::new(
-                [world_x as f32, world_y as f32, world_z as f32 + 1.0],
-                [0.0, -1.0, 0.0],
-                [0.0, 1.0],
-            ),
-            Vertex::new(
-                [world_x as f32 + 1.0, world_y as f32, world_z as f32 + 1.0],
-                [0.0, -1.0, 0.0],
-                [1.0, 1.0],
-            ),
-            Vertex::new(
-                [world_x as f32 + 1.0, world_y as f32, world_z as f32],
-                [0.0, -1.0, 0.0],
-                [1.0, 0.0],
-            ),
-        ]);
-        indices.extend_from_slice(&[
-            base_index,
-            base_index + 1,
-            base_index + 2,
-            base_index + 2,
-            base_index + 3,
-            base_index,
-        ]);
-    }
-
-    // Front face
-    if self.should_render_face(check_x, check_y, check_z + 1, adjacent_chunks, Direction::South) {
-        let base_index = vertices.len() as u16;
-        vertices.extend_from_slice(&[
-            Vertex::new(
-                [world_x as f32, world_y as f32, world_z as f32 + 1.0],
+            (
+                Direction::South,
                 [0.0, 0.0, 1.0],
-                [0.0, 0.0],
+                [
+                    (0.0, 0.0, 1.0),
+                    (1.0, 0.0, 1.0),
+                    (1.0, 1.0, 1.0),
+                    (0.0, 1.0, 1.0),
+                ],
+                [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
             ),
-            Vertex::new(
-                [world_x as f32 + 1.0, world_y as f32, world_z as f32 + 1.0],
-                [0.0, 0.0, 1.0],
-                [1.0, 0.0],
+            (
+                Direction::North,
+                [0.0, 0.0, -1.0],
+                [
+                    (0.0, 0.0, 0.0),
+                    (0.0, 1.0, 0.0),
+                    (1.0, 1.0, 0.0),
+                    (1.0, 0.0, 0.0),
+                ],
+                [(1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)],
             ),
-            Vertex::new(
-                [world_x as f32 + 1.0, world_y as f32 + 1.0, world_z as f32 + 1.0],
-                [0.0, 0.0, 1.0],
-                [1.0, 1.0],
+            (
+                Direction::East,
+                [1.0, 0.0, 0.0],
+                [
+                    (1.0, 0.0, 0.0),
+                    (1.0, 1.0, 0.0),
+                    (1.0, 1.0, 1.0),
+                    (1.0, 0.0, 1.0),
+                ],
+                [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
             ),
-            Vertex::new(
-                [world_x as f32, world_y as f32 + 1.0, world_z as f32 + 1.0],
-                [0.0, 0.0, 1.0],
-                [0.0, 1.0],
+            (
+                Direction::West,
+                [-1.0, 0.0, 0.0],
+                [
+                    (0.0, 0.0, 0.0),
+                    (0.0, 0.0, 1.0),
+                    (0.0, 1.0, 1.0),
+                    (0.0, 1.0, 0.0),
+                ],
+                [(1.0, 0.0), (0.0, 0.0), (0.0, 1.0), (1.0, 1.0)],
             ),
-        ]);
-        indices.extend_from_slice(&[
-            base_index,
-            base_index + 1,
-            base_index + 2,
-            base_index + 2,
-            base_index + 3,
-            base_index,
-        ]);
-    }
+        ];
 
-    // Back face
-    if self.should_render_face(check_x, check_y, check_z - 1, adjacent_chunks, Direction::North) {
-        let base_index = vertices.len() as u16;
-        vertices.extend_from_slice(&[
-            Vertex::new(
-                [world_x as f32, world_y as f32, world_z as f32],
-                [0.0, 0.0, -1.0],
-                [1.0, 0.0],
-            ),
-            Vertex::new(
-                [world_x as f32, world_y as f32 + 1.0, world_z as f32],
-                [0.0, 0.0, -1.0],
-                [1.0, 1.0],
-            ),
-            Vertex::new(
-                [world_x as f32 + 1.0, world_y as f32 + 1.0, world_z as f32],
-                [0.0, 0.0, -1.0],
-                [0.0, 1.0],
-            ),
-            Vertex::new(
-                [world_x as f32 + 1.0, world_y as f32, world_z as f32],
-                [0.0, 0.0, -1.0],
-                [0.0, 0.0],
-            ),
-        ]);
-        indices.extend_from_slice(&[
-            base_index,
-            base_index + 1,
-            base_index + 2,
-            base_index + 2,
-            base_index + 3,
-            base_index,
-        ]);
-    }
-
-    // Right face
-    if self.should_render_face(check_x + 1, check_y, check_z, adjacent_chunks, Direction::East) {
-        let base_index = vertices.len() as u16;
-        vertices.extend_from_slice(&[
-            Vertex::new(
-                [world_x as f32 + 1.0, world_y as f32, world_z as f32],
-                [1.0, 0.0, 0.0],
-                [0.0, 0.0],
-            ),
-            Vertex::new(
-                [world_x as f32 + 1.0, world_y as f32 + 1.0, world_z as f32],
-                [1.0, 0.0, 0.0],
-                [1.0, 0.0],
-            ),
-            Vertex::new(
-                [world_x as f32 + 1.0, world_y as f32 + 1.0, world_z as f32 + 1.0],
-                [1.0, 0.0, 0.0],
-                [1.0, 1.0],
-            ),
-            Vertex::new(
-                [world_x as f32 + 1.0, world_y as f32, world_z as f32 + 1.0],
-                [1.0, 0.0, 0.0],
-                [0.0, 1.0],
-            ),
-        ]);
-        indices.extend_from_slice(&[
-            base_index,
-            base_index + 1,
-            base_index + 2,
-            base_index + 2,
-            base_index + 3,
-            base_index,
-        ]);
-    }
-
-    // Left face
-    if self.should_render_face(check_x - 1, check_y, check_z, adjacent_chunks, Direction::West) {
-        let base_index = vertices.len() as u16;
-        vertices.extend_from_slice(&[
-            Vertex::new(
-                [world_x as f32, world_y as f32, world_z as f32],
-                [-1.0, 0.0, 0.0],
-                [1.0, 0.0],
-            ),
-            Vertex::new(
-                [world_x as f32, world_y as f32, world_z as f32 + 1.0],
-                [-1.0, 0.0, 0.0],
-                [0.0, 0.0],
-            ),
-            Vertex::new(
-                [world_x as f32, world_y as f32 + 1.0, world_z as f32 + 1.0],
-                [-1.0, 0.0, 0.0],
-                [0.0, 1.0],
-            ),
-            Vertex::new(
-                [world_x as f32, world_y as f32 + 1.0, world_z as f32],
-                [-1.0, 0.0, 0.0],
-                [1.0, 1.0],
-            ),
-        ]);
-        indices.extend_from_slice(&[
-            base_index,
-            base_index + 1,
-            base_index + 2,
-            base_index + 2,
-            base_index + 3,
-            base_index,
-        ]);
-    }
+        for (direction, normal, positions, uvs) in FACES {
+            let (check_x, check_y, check_z) = match direction {
+                Direction::Up    => (check_pos.0, check_pos.1 + 1, check_pos.2),
+                Direction::Down  => (check_pos.0, check_pos.1 - 1, check_pos.2),
+                Direction::South => (check_pos.0, check_pos.1, check_pos.2 + 1),
+                Direction::North => (check_pos.0, check_pos.1, check_pos.2 - 1),
+                Direction::East  => (check_pos.0 + 1, check_pos.1, check_pos.2),
+                Direction::West  => (check_pos.0 - 1, check_pos.1, check_pos.2),
+            };
+    
+            if self.should_render_face(check_x, check_y, check_z, adjacent_chunks, direction) {
+                let base_index = vertices.len() as u16;
+                
+                // Add vertices for this face
+                for i in 0..4 {
+                    vertices.push(Vertex::new(
+                        [
+                            world_x as f32 + positions[i].0,
+                            world_y as f32 + positions[i].1,
+                            world_z as f32 + positions[i].2,
+                        ],
+                        normal,
+                        [uvs[i].0, uvs[i].1],
+                    ));
+                }
+    
+                // Add indices for this face
+                indices.extend_from_slice(&[
+                    base_index,
+                    base_index + 1,
+                    base_index + 2,
+                    base_index + 2,
+                    base_index + 3,
+                    base_index,
+                ]);
+            }
+        }
     }
 
     fn should_render_face(
@@ -300,9 +198,13 @@ impl Chunk {
         direction: Direction,
     ) -> bool {
         // Check if the adjacent block is within the current chunk
-        if x >= 0 && x < CHUNK_SIZE_X as i32 && 
-           y >= 0 && y < CHUNK_SIZE_Y as i32 && 
-           z >= 0 && z < CHUNK_SIZE_Z as i32 {
+        if x >= 0
+            && x < CHUNK_SIZE_X as i32
+            && y >= 0
+            && y < CHUNK_SIZE_Y as i32
+            && z >= 0
+            && z < CHUNK_SIZE_Z as i32
+        {
             return self.blocks[x as usize][y as usize][z as usize] == BlockType::Air;
         }
 
@@ -561,7 +463,6 @@ impl ChunkManager {
             // if !view_frustum.contains_chunk(*chunk_pos) {
             //     continue;
             // }
-            println!("{:?}", chunk_pos);
             render_pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
             render_pass.set_index_buffer(buffers.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..*index_count, 0, 0..1);
@@ -596,7 +497,6 @@ impl ChunkManager {
     }
 }
 
-
 pub fn create_initial_chunks(chunk_manager: &mut ChunkManager) {
     for x in -3..=3 {
         for z in -3..=3 {
@@ -607,21 +507,21 @@ pub fn create_initial_chunks(chunk_manager: &mut ChunkManager) {
     }
 }
 
-fn generate_test_chunk(chunk_x: i32, chunk_z: i32) -> Box<[[[BlockType; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]> {
+fn generate_test_chunk(
+    chunk_x: i32,
+    chunk_z: i32,
+) -> Box<[[[BlockType; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]> {
     let mut blocks = Box::new([[[BlockType::Air; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]);
-    
+
     // Generate some test terrain
     for x in 0..CHUNK_SIZE_X {
         for z in 0..CHUNK_SIZE_Z {
             // Create a simple heightmap using sine waves
             let world_x = (chunk_x * CHUNK_SIZE_X as i32 + x as i32) as f32;
             let world_z = (chunk_z * CHUNK_SIZE_Z as i32 + z as i32) as f32;
-            
-            let height = (
-                (world_x * 0.1).sin() * 5.0 +
-                (world_z * 0.1).cos() * 5.0 +
-                32.0
-            ) as usize;
+
+            let height =
+                ((world_x * 0.1).sin() * 5.0 + (world_z * 0.1).cos() * 5.0 + 32.0) as usize;
 
             // Fill blocks up to the height
             for y in 0..height.min(CHUNK_SIZE_Y) {
@@ -635,6 +535,6 @@ fn generate_test_chunk(chunk_x: i32, chunk_z: i32) -> Box<[[[BlockType; CHUNK_SI
             }
         }
     }
-    
+
     blocks
 }
