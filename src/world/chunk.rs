@@ -1,0 +1,640 @@
+use glam::IVec3;
+use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
+use std::time::Instant;
+use winit::event::ElementState;
+use winit::keyboard::KeyCode;
+use winit::window::Window;
+
+use crate::img_utils::RgbaImg;
+use crate::model::vertex::Vertex;
+use wgpu::{BufferDescriptor, SamplerDescriptor, ShaderSource, TextureView};
+
+const CHUNK_SIZE_X: usize = 16;
+const CHUNK_SIZE_Y: usize = 256;
+const CHUNK_SIZE_Z: usize = 16;
+const POOL_INITIAL_SIZE: usize = 64;
+const MAX_VERTICES_PER_CHUNK: usize = CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z * 24; // 24 vertices per block worst case
+const MAX_INDICES_PER_CHUNK: usize = CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z * 36; // 36 indices per block worst case
+
+#[derive(Debug, Clone, Copy)]
+enum Direction {
+    North,
+    South,
+    East,
+    West,
+    Up,
+    Down,
+}
+
+#[derive(Debug)]
+struct AdjacentChunks<'a> {
+    north: Option<&'a Chunk>,
+    south: Option<&'a Chunk>,
+    east: Option<&'a Chunk>,
+    west: Option<&'a Chunk>,
+    up: Option<&'a Chunk>,
+    down: Option<&'a Chunk>,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum BlockType {
+    Air,
+    Dirt,
+    Grass,
+    Stone,
+    // ... other block types
+}
+
+#[derive(Debug)]
+pub struct Chunk {
+    position: IVec3, // Chunk position in world space
+    blocks: Box<[[[BlockType; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]>,
+    needs_mesh_update: bool,
+}
+
+impl Chunk {
+    pub fn new(position: IVec3) -> Self {
+        Self {
+            position,
+            blocks: Box::new([[[BlockType::Air; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]),
+            needs_mesh_update: true,
+        }
+    }
+    fn add_block_faces(
+        &self,
+        x: usize,
+        y: usize,
+        z: usize,
+        vertices: &mut Vec<Vertex>,
+        indices: &mut Vec<u16>,
+        adjacent_chunks: Option<&AdjacentChunks>,
+    ) {
+        let block_type = self.blocks[x][y][z];
+        let base_index = vertices.len() as u16;
+        let world_x = self.position.x * CHUNK_SIZE_X as i32 + x as i32;
+        let world_y = self.position.y * CHUNK_SIZE_Y as i32 + y as i32;
+        let world_z = self.position.z * CHUNK_SIZE_Z as i32 + z as i32;
+    
+        // Convert to coordinates for should_render_face
+        let (check_x, check_y, check_z) = (x as i32, y as i32, z as i32);
+
+        // Check each face direction
+    // Top face
+    if self.should_render_face(check_x, check_y + 1, check_z, adjacent_chunks, Direction::Up) {
+        let y_offset = 1.0;
+        vertices.extend_from_slice(&[
+            Vertex::new(
+                [world_x as f32, world_y as f32 + y_offset, world_z as f32],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0],
+            ),
+            Vertex::new(
+                [world_x as f32 + 1.0, world_y as f32 + y_offset, world_z as f32],
+                [0.0, 1.0, 0.0],
+                [1.0, 0.0],
+            ),
+            Vertex::new(
+                [world_x as f32 + 1.0, world_y as f32 + y_offset, world_z as f32 + 1.0],
+                [0.0, 1.0, 0.0],
+                [1.0, 1.0],
+            ),
+            Vertex::new(
+                [world_x as f32, world_y as f32 + y_offset, world_z as f32 + 1.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 1.0],
+            ),
+        ]);
+        indices.extend_from_slice(&[
+            base_index,
+            base_index + 1,
+            base_index + 2,
+            base_index + 2,
+            base_index + 3,
+            base_index,
+        ]);
+    }
+
+    // Bottom face
+    if self.should_render_face(check_x, check_y - 1, check_z, adjacent_chunks, Direction::Down) {
+        let base_index = vertices.len() as u16;
+        vertices.extend_from_slice(&[
+            Vertex::new(
+                [world_x as f32, world_y as f32, world_z as f32],
+                [0.0, -1.0, 0.0],
+                [0.0, 0.0],
+            ),
+            Vertex::new(
+                [world_x as f32, world_y as f32, world_z as f32 + 1.0],
+                [0.0, -1.0, 0.0],
+                [0.0, 1.0],
+            ),
+            Vertex::new(
+                [world_x as f32 + 1.0, world_y as f32, world_z as f32 + 1.0],
+                [0.0, -1.0, 0.0],
+                [1.0, 1.0],
+            ),
+            Vertex::new(
+                [world_x as f32 + 1.0, world_y as f32, world_z as f32],
+                [0.0, -1.0, 0.0],
+                [1.0, 0.0],
+            ),
+        ]);
+        indices.extend_from_slice(&[
+            base_index,
+            base_index + 1,
+            base_index + 2,
+            base_index + 2,
+            base_index + 3,
+            base_index,
+        ]);
+    }
+
+    // Front face
+    if self.should_render_face(check_x, check_y, check_z + 1, adjacent_chunks, Direction::South) {
+        let base_index = vertices.len() as u16;
+        vertices.extend_from_slice(&[
+            Vertex::new(
+                [world_x as f32, world_y as f32, world_z as f32 + 1.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 0.0],
+            ),
+            Vertex::new(
+                [world_x as f32 + 1.0, world_y as f32, world_z as f32 + 1.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0],
+            ),
+            Vertex::new(
+                [world_x as f32 + 1.0, world_y as f32 + 1.0, world_z as f32 + 1.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 1.0],
+            ),
+            Vertex::new(
+                [world_x as f32, world_y as f32 + 1.0, world_z as f32 + 1.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 1.0],
+            ),
+        ]);
+        indices.extend_from_slice(&[
+            base_index,
+            base_index + 1,
+            base_index + 2,
+            base_index + 2,
+            base_index + 3,
+            base_index,
+        ]);
+    }
+
+    // Back face
+    if self.should_render_face(check_x, check_y, check_z - 1, adjacent_chunks, Direction::North) {
+        let base_index = vertices.len() as u16;
+        vertices.extend_from_slice(&[
+            Vertex::new(
+                [world_x as f32, world_y as f32, world_z as f32],
+                [0.0, 0.0, -1.0],
+                [1.0, 0.0],
+            ),
+            Vertex::new(
+                [world_x as f32, world_y as f32 + 1.0, world_z as f32],
+                [0.0, 0.0, -1.0],
+                [1.0, 1.0],
+            ),
+            Vertex::new(
+                [world_x as f32 + 1.0, world_y as f32 + 1.0, world_z as f32],
+                [0.0, 0.0, -1.0],
+                [0.0, 1.0],
+            ),
+            Vertex::new(
+                [world_x as f32 + 1.0, world_y as f32, world_z as f32],
+                [0.0, 0.0, -1.0],
+                [0.0, 0.0],
+            ),
+        ]);
+        indices.extend_from_slice(&[
+            base_index,
+            base_index + 1,
+            base_index + 2,
+            base_index + 2,
+            base_index + 3,
+            base_index,
+        ]);
+    }
+
+    // Right face
+    if self.should_render_face(check_x + 1, check_y, check_z, adjacent_chunks, Direction::East) {
+        let base_index = vertices.len() as u16;
+        vertices.extend_from_slice(&[
+            Vertex::new(
+                [world_x as f32 + 1.0, world_y as f32, world_z as f32],
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0],
+            ),
+            Vertex::new(
+                [world_x as f32 + 1.0, world_y as f32 + 1.0, world_z as f32],
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0],
+            ),
+            Vertex::new(
+                [world_x as f32 + 1.0, world_y as f32 + 1.0, world_z as f32 + 1.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 1.0],
+            ),
+            Vertex::new(
+                [world_x as f32 + 1.0, world_y as f32, world_z as f32 + 1.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0],
+            ),
+        ]);
+        indices.extend_from_slice(&[
+            base_index,
+            base_index + 1,
+            base_index + 2,
+            base_index + 2,
+            base_index + 3,
+            base_index,
+        ]);
+    }
+
+    // Left face
+    if self.should_render_face(check_x - 1, check_y, check_z, adjacent_chunks, Direction::West) {
+        let base_index = vertices.len() as u16;
+        vertices.extend_from_slice(&[
+            Vertex::new(
+                [world_x as f32, world_y as f32, world_z as f32],
+                [-1.0, 0.0, 0.0],
+                [1.0, 0.0],
+            ),
+            Vertex::new(
+                [world_x as f32, world_y as f32, world_z as f32 + 1.0],
+                [-1.0, 0.0, 0.0],
+                [0.0, 0.0],
+            ),
+            Vertex::new(
+                [world_x as f32, world_y as f32 + 1.0, world_z as f32 + 1.0],
+                [-1.0, 0.0, 0.0],
+                [0.0, 1.0],
+            ),
+            Vertex::new(
+                [world_x as f32, world_y as f32 + 1.0, world_z as f32],
+                [-1.0, 0.0, 0.0],
+                [1.0, 1.0],
+            ),
+        ]);
+        indices.extend_from_slice(&[
+            base_index,
+            base_index + 1,
+            base_index + 2,
+            base_index + 2,
+            base_index + 3,
+            base_index,
+        ]);
+    }
+    }
+
+    fn should_render_face(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+        adjacent_chunks: Option<&AdjacentChunks>,
+        direction: Direction,
+    ) -> bool {
+        // Check if the adjacent block is within the current chunk
+        if x >= 0 && x < CHUNK_SIZE_X as i32 && 
+           y >= 0 && y < CHUNK_SIZE_Y as i32 && 
+           z >= 0 && z < CHUNK_SIZE_Z as i32 {
+            return self.blocks[x as usize][y as usize][z as usize] == BlockType::Air;
+        }
+
+        // If we're at a chunk boundary, check the adjacent chunk
+        if let Some(adjacent_chunks) = adjacent_chunks {
+            let (chunk, new_x, new_y, new_z) = match direction {
+                Direction::North if z < 0 => {
+                    if let Some(chunk) = adjacent_chunks.north {
+                        (chunk, x as usize, y as usize, CHUNK_SIZE_Z - 1)
+                    } else {
+                        return true;
+                    }
+                }
+                Direction::South if z >= CHUNK_SIZE_Z as i32 => {
+                    if let Some(chunk) = adjacent_chunks.south {
+                        (chunk, x as usize, y as usize, 0)
+                    } else {
+                        return true;
+                    }
+                }
+                Direction::East if x >= CHUNK_SIZE_X as i32 => {
+                    if let Some(chunk) = adjacent_chunks.east {
+                        (chunk, 0, y as usize, z as usize)
+                    } else {
+                        return true;
+                    }
+                }
+                Direction::West if x < 0 => {
+                    if let Some(chunk) = adjacent_chunks.west {
+                        (chunk, CHUNK_SIZE_X - 1, y as usize, z as usize)
+                    } else {
+                        return true;
+                    }
+                }
+                Direction::Up if y >= CHUNK_SIZE_Y as i32 => {
+                    if let Some(chunk) = adjacent_chunks.up {
+                        (chunk, x as usize, 0, z as usize)
+                    } else {
+                        return true;
+                    }
+                }
+                Direction::Down if y < 0 => {
+                    if let Some(chunk) = adjacent_chunks.down {
+                        (chunk, x as usize, CHUNK_SIZE_Y - 1, z as usize)
+                    } else {
+                        return true;
+                    }
+                }
+                _ => return false,
+            };
+
+            chunk.blocks[new_x][new_y][new_z] == BlockType::Air
+        } else {
+            // If no adjacent chunks are provided, render the face
+            true
+        }
+    }
+
+    // Generate mesh data for the chunk
+    fn generate_mesh_data(
+        &self,
+        adjacent_chunks: Option<&AdjacentChunks>,
+    ) -> (Vec<Vertex>, Vec<u16>) {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+
+        for x in 0..CHUNK_SIZE_X {
+            for y in 0..CHUNK_SIZE_Y {
+                for z in 0..CHUNK_SIZE_Z {
+                    if self.blocks[x][y][z] == BlockType::Air {
+                        continue;
+                    }
+
+                    // Check each face of the current block
+                    // Only add faces that are adjacent to air or chunk boundaries
+                    // This is where you implement face culling
+                    self.add_block_faces(x, y, z, &mut vertices, &mut indices, adjacent_chunks);
+                }
+            }
+        }
+
+        (vertices, indices)
+    }
+}
+
+struct BufferPair {
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+}
+
+struct MeshPool {
+    available_buffers: VecDeque<BufferPair>,
+    device: Arc<wgpu::Device>,
+}
+
+impl MeshPool {
+    fn new(device: Arc<wgpu::Device>) -> Self {
+        let mut available_buffers = VecDeque::with_capacity(POOL_INITIAL_SIZE);
+
+        // Pre-allocate buffers
+        for _ in 0..POOL_INITIAL_SIZE {
+            available_buffers.push_back(Self::create_buffer_pair(&device));
+        }
+
+        Self {
+            available_buffers,
+            device,
+        }
+    }
+
+    fn create_buffer_pair(device: &wgpu::Device) -> BufferPair {
+        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Pooled Chunk Vertex Buffer"),
+            size: (MAX_VERTICES_PER_CHUNK * std::mem::size_of::<Vertex>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Pooled Chunk Index Buffer"),
+            size: (MAX_INDICES_PER_CHUNK * std::mem::size_of::<u16>()) as u64,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        BufferPair {
+            vertex_buffer,
+            index_buffer,
+        }
+    }
+
+    fn acquire_buffers(&mut self) -> BufferPair {
+        if let Some(buffers) = self.available_buffers.pop_front() {
+            buffers
+        } else {
+            // Create new buffers if pool is empty
+            Self::create_buffer_pair(&self.device)
+        }
+    }
+
+    fn return_buffers(&mut self, buffers: BufferPair) {
+        self.available_buffers.push_back(buffers);
+    }
+}
+
+struct ChunkMeshManager {
+    mesh_pool: MeshPool,
+    active_meshes: HashMap<IVec3, (BufferPair, u32)>, // (buffers, index_count)
+    queue: Arc<wgpu::Queue>,
+}
+
+impl ChunkMeshManager {
+    fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+        Self {
+            mesh_pool: MeshPool::new(device),
+            active_meshes: HashMap::new(),
+            queue,
+        }
+    }
+
+    fn update_mesh(&mut self, chunk_pos: IVec3, vertices: &[Vertex], indices: &[u16]) {
+        let buffers = if let Some((existing_buffers, _)) = self.active_meshes.remove(&chunk_pos) {
+            existing_buffers
+        } else {
+            self.mesh_pool.acquire_buffers()
+        };
+
+        // Upload new mesh data
+        self.queue
+            .write_buffer(&buffers.vertex_buffer, 0, bytemuck::cast_slice(vertices));
+        self.queue
+            .write_buffer(&buffers.index_buffer, 0, bytemuck::cast_slice(indices));
+
+        self.active_meshes
+            .insert(chunk_pos, (buffers, indices.len() as u32));
+    }
+
+    fn remove_mesh(&mut self, chunk_pos: &IVec3) {
+        if let Some((buffers, _)) = self.active_meshes.remove(chunk_pos) {
+            self.mesh_pool.return_buffers(buffers);
+        }
+    }
+}
+
+pub struct ChunkManager {
+    chunks: HashMap<IVec3, Chunk>,
+    mesh_manager: ChunkMeshManager,
+    update_queue: VecDeque<IVec3>,
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
+}
+
+impl ChunkManager {
+    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+        Self {
+            chunks: HashMap::new(),
+            mesh_manager: ChunkMeshManager::new(device.clone(), queue.clone()),
+            update_queue: VecDeque::new(),
+            device,
+            queue,
+        }
+    }
+
+    pub fn update_chunk(
+        &mut self,
+        position: IVec3,
+        blocks: Box<[[[BlockType; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]>,
+    ) {
+        // Update chunk data
+        if let Some(chunk) = self.chunks.get_mut(&position) {
+            chunk.blocks = blocks;
+            chunk.needs_mesh_update = true;
+        } else {
+            let mut chunk = Chunk::new(position);
+            chunk.blocks = blocks;
+            self.chunks.insert(position, chunk);
+        }
+
+        // Queue mesh updates
+        self.update_queue.push_back(position);
+
+        // Queue adjacent chunks for update
+        for adj_pos in self.get_adjacent_chunk_positions(position) {
+            if self.chunks.contains_key(&adj_pos) {
+                self.update_queue.push_back(adj_pos);
+            }
+        }
+    }
+
+    pub fn process_mesh_updates(&mut self) {
+        // Process a limited number of updates per frame
+        const UPDATES_PER_FRAME: usize = 4;
+
+        for _ in 0..UPDATES_PER_FRAME {
+            if let Some(chunk_pos) = self.update_queue.pop_front() {
+                if let Some(chunk) = self.chunks.get(&chunk_pos) {
+                    let adjacent_chunks = self.get_adjacent_chunks(chunk_pos);
+                    let (vertices, indices) = chunk.generate_mesh_data(Some(&adjacent_chunks));
+
+                    if vertices.is_empty() {
+                        self.mesh_manager.remove_mesh(&chunk_pos);
+                    } else {
+                        self.mesh_manager
+                            .update_mesh(chunk_pos, &vertices, &indices);
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+        for (chunk_pos, (buffers, index_count)) in &self.mesh_manager.active_meshes {
+            // Skip chunks outside view frustum
+            // if !view_frustum.contains_chunk(*chunk_pos) {
+            //     continue;
+            // }
+            println!("{:?}", chunk_pos);
+            render_pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(buffers.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..*index_count, 0, 0..1);
+        }
+    }
+
+    fn unload_chunk(&mut self, position: &IVec3) {
+        self.chunks.remove(position);
+        self.mesh_manager.remove_mesh(position);
+    }
+
+    fn get_adjacent_chunks(&self, position: IVec3) -> AdjacentChunks {
+        AdjacentChunks {
+            north: self.chunks.get(&(position + IVec3::new(0, 0, -1))),
+            south: self.chunks.get(&(position + IVec3::new(0, 0, 1))),
+            east: self.chunks.get(&(position + IVec3::new(1, 0, 0))),
+            west: self.chunks.get(&(position + IVec3::new(-1, 0, 0))),
+            up: self.chunks.get(&(position + IVec3::new(0, 1, 0))),
+            down: self.chunks.get(&(position + IVec3::new(0, -1, 0))),
+        }
+    }
+
+    fn get_adjacent_chunk_positions(&self, position: IVec3) -> [IVec3; 6] {
+        [
+            position + IVec3::new(0, 0, -1), // North
+            position + IVec3::new(0, 0, 1),  // South
+            position + IVec3::new(1, 0, 0),  // East
+            position + IVec3::new(-1, 0, 0), // West
+            position + IVec3::new(0, 1, 0),  // Up
+            position + IVec3::new(0, -1, 0), // Down
+        ]
+    }
+}
+
+
+pub fn create_initial_chunks(chunk_manager: &mut ChunkManager) {
+    for x in -3..=3 {
+        for z in -3..=3 {
+            let chunk_pos = IVec3::new(x, 0, z);
+            let blocks = generate_test_chunk(x, z);
+            chunk_manager.update_chunk(chunk_pos, blocks);
+        }
+    }
+}
+
+fn generate_test_chunk(chunk_x: i32, chunk_z: i32) -> Box<[[[BlockType; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]> {
+    let mut blocks = Box::new([[[BlockType::Air; CHUNK_SIZE_Z]; CHUNK_SIZE_Y]; CHUNK_SIZE_X]);
+    
+    // Generate some test terrain
+    for x in 0..CHUNK_SIZE_X {
+        for z in 0..CHUNK_SIZE_Z {
+            // Create a simple heightmap using sine waves
+            let world_x = (chunk_x * CHUNK_SIZE_X as i32 + x as i32) as f32;
+            let world_z = (chunk_z * CHUNK_SIZE_Z as i32 + z as i32) as f32;
+            
+            let height = (
+                (world_x * 0.1).sin() * 5.0 +
+                (world_z * 0.1).cos() * 5.0 +
+                32.0
+            ) as usize;
+
+            // Fill blocks up to the height
+            for y in 0..height.min(CHUNK_SIZE_Y) {
+                blocks[x][y][z] = if y == height - 1 {
+                    BlockType::Grass
+                } else if y > height - 4 {
+                    BlockType::Dirt
+                } else {
+                    BlockType::Stone
+                };
+            }
+        }
+    }
+    
+    blocks
+}

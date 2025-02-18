@@ -6,12 +6,12 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::PhysicalKey;
 use winit::window::{Window, WindowId};
 
-use crate::wgpu_ctx::WgpuCtx;
+use crate::world::render::Renderer;
 
 #[derive(Default)]
 pub struct App<'window> {
     window: Option<Arc<Window>>,
-    wgpu_ctx: Option<WgpuCtx<'window>>,
+    renderer: Option<Renderer<'window>>,
 }
 
 impl<'window> ApplicationHandler for App<'window> {
@@ -25,8 +25,10 @@ impl<'window> ApplicationHandler for App<'window> {
                     .expect("create window err."),
             );
             self.window = Some(window.clone());
-            let wgpu_ctx = WgpuCtx::new(window.clone());
-            self.wgpu_ctx = Some(wgpu_ctx);
+            // let wgpu_ctx = WgpuCtx::new(window.clone());
+            // self.wgpu_ctx = Some(wgpu_ctx);
+            let renderer = Renderer::new(window.clone());
+            self.renderer = Some(renderer);
         }
     }
 
@@ -41,16 +43,16 @@ impl<'window> ApplicationHandler for App<'window> {
                 event_loop.exit();
             }
             WindowEvent::Resized(new_size) => {
-                if let (Some(wgpu_ctx), Some(window)) =
-                    (self.wgpu_ctx.as_mut(), self.window.as_ref())
+                if let (Some(renderer), Some(window)) =
+                    (self.renderer.as_mut(), self.window.as_ref())
                 {
-                    wgpu_ctx.resize(new_size);
+                    renderer.resize(new_size);
                     window.request_redraw();
                 }
             }
             WindowEvent::RedrawRequested => {
-                if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
-                    wgpu_ctx.draw();
+                if let Some(renderer) = self.renderer.as_mut() {
+                    renderer.render();
                 }
                 self.window.as_ref().unwrap().request_redraw();
             }
@@ -59,8 +61,8 @@ impl<'window> ApplicationHandler for App<'window> {
                 event,
                 is_synthetic,
             } => {
-                if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
-                    wgpu_ctx.keyboard_input(device_id, event, is_synthetic);
+                if let Some(renderer) = self.renderer.as_mut() {
+                    renderer.keyboard_input(device_id, event, is_synthetic);
                 }
             }
             _ => (),
@@ -75,8 +77,8 @@ impl<'window> ApplicationHandler for App<'window> {
         ) {
         match event {
             DeviceEvent::MouseMotion { delta } => {
-                if let Some(wgpu_ctx) = self.wgpu_ctx.as_mut() {
-                    wgpu_ctx.process_mouse(delta.0 as f32, delta.1 as f32);
+                if let Some(renderer) = self.renderer.as_mut() {
+                    renderer.process_mouse(delta.0 as f32, delta.1 as f32);
                 }
             }
             _ => ()

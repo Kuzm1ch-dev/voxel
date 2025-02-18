@@ -6,6 +6,7 @@ mod app;
 mod wgpu_ctx;
 mod model;
 mod img_utils;
+mod world;
 
 fn main() -> Result<(), EventLoopError> {
     let event_loop = EventLoop::new().unwrap();
