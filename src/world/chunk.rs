@@ -12,6 +12,8 @@ use crate::img_utils::RgbaImg;
 use crate::model::vertex::Vertex;
 use wgpu::{BufferDescriptor, SamplerDescriptor, ShaderSource, TextureView};
 
+use super::render::{BoundingBox, Camera};
+
 const CHUNK_SIZE_X: usize = 16;
 const CHUNK_SIZE_Y: usize = 256;
 const CHUNK_SIZE_Z: usize = 16;
@@ -457,12 +459,16 @@ impl ChunkManager {
         }
     }
 
-    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera:&mut Camera) {
         for (chunk_pos, (buffers, index_count)) in &self.mesh_manager.active_meshes {
             // Skip chunks outside view frustum
             // if !view_frustum.contains_chunk(*chunk_pos) {
             //     continue;
             // }
+            let chunk_bbox = BoundingBox::from_chunk_position(*chunk_pos);
+            if (!camera.is_in_frustum(&chunk_bbox)){
+                continue;;
+            }
             render_pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
             render_pass.set_index_buffer(buffers.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..*index_count, 0, 0..1);
