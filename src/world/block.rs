@@ -15,6 +15,16 @@ pub struct BlockTextures {
 }
 
 impl BlockTextures {
+    pub fn new(top: String, bottom: String, front: String, back: String, left: String, right: String) -> Self {
+        BlockTextures {
+            top,
+            bottom,
+            front,
+            back,
+            left,
+            right,
+        }
+    }
     pub fn uniform(texture: String) -> Self {
         // Helper for blocks that use the same texture on all faces
         BlockTextures {

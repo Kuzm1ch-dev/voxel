@@ -14,7 +14,7 @@ use crate::img_utils::RgbaImg;
 use crate::model::vertex::Vertex;
 use crate::render::camera::{BoundingBox, Camera};
 use crate::render::texture_manager::ChunkTextureAtlas;
-use wgpu::{BufferDescriptor, SamplerDescriptor, ShaderSource, TextureView};
+use wgpu::{BindGroupLayout, BufferDescriptor, SamplerDescriptor, ShaderSource, TextureView};
 
 use super::block::BlockType;
 use super::block_registry::{self, BlockRegistry};
@@ -123,21 +123,21 @@ impl Chunk {
                 Direction::Down,
                 [0.0, -1.0, 0.0],
                 [
-                    (0.0, 0.0, 0.0),
                     (0.0, 0.0, 1.0),
                     (1.0, 0.0, 1.0),
                     (1.0, 0.0, 0.0),
+                    (0.0, 0.0, 0.0),
                 ],
-                [(0.0, 0.0), (0.0, 1.0), (1.0, 1.0), (1.0, 0.0)],
+                [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
             ),
             (
                 Direction::South,
                 [0.0, 0.0, 1.0],
                 [
-                    (0.0, 0.0, 1.0),
-                    (1.0, 0.0, 1.0),
-                    (1.0, 1.0, 1.0),
                     (0.0, 1.0, 1.0),
+                    (1.0, 1.0, 1.0),
+                    (1.0, 0.0, 1.0),
+                    (0.0, 0.0, 1.0),
                 ],
                 [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
             ),
@@ -145,20 +145,20 @@ impl Chunk {
                 Direction::North,
                 [0.0, 0.0, -1.0],
                 [
-                    (0.0, 0.0, 0.0),
-                    (0.0, 1.0, 0.0),
                     (1.0, 1.0, 0.0),
+                    (0.0, 1.0, 0.0),
+                    (0.0, 0.0, 0.0),
                     (1.0, 0.0, 0.0),
                 ],
-                [(1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)],
+                [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
             ),
             (
                 Direction::East,
                 [1.0, 0.0, 0.0],
                 [
-                    (1.0, 0.0, 0.0),
-                    (1.0, 1.0, 0.0),
                     (1.0, 1.0, 1.0),
+                    (1.0, 1.0, 0.0),
+                    (1.0, 0.0, 0.0),
                     (1.0, 0.0, 1.0),
                 ],
                 [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
@@ -167,12 +167,12 @@ impl Chunk {
                 Direction::West,
                 [-1.0, 0.0, 0.0],
                 [
-                    (0.0, 0.0, 0.0),
-                    (0.0, 0.0, 1.0),
+                    (0.0, 1.0, 0.0),    // Reorder west face
                     (0.0, 1.0, 1.0),
-                    (0.0, 1.0, 0.0),
+                    (0.0, 0.0, 1.0),
+                    (0.0, 0.0, 0.0),
                 ],
-                [(1.0, 0.0), (0.0, 0.0), (0.0, 1.0), (1.0, 1.0)],
+                [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
             ),
         ];
 
@@ -193,8 +193,8 @@ impl Chunk {
                     Direction::Down => block.textures.bottom.clone(),
                     Direction::South => block.textures.back.clone(), 
                     Direction::North => block.textures.front.clone(), 
-                    Direction::East => block.textures.left.clone(), 
-                    Direction::West => block.textures.right.clone(), 
+                    Direction::East => block.textures.right.clone(), 
+                    Direction::West => block.textures.left.clone(), 
                 };
                 // Add vertices for this face
                 for i in 0..4 {
@@ -303,11 +303,12 @@ impl Chunk {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         adjacent_chunks: Option<&AdjacentChunks>,
-        block_registry: &Arc<BlockRegistry>
-    ) -> (Vec<Vertex>, Vec<u16>) {
+        block_registry: &Arc<BlockRegistry>,
+        texture_atlas_bind_group_layout: &BindGroupLayout
+    ) -> (Vec<Vertex>, Vec<u16>, ChunkTextureAtlas) {
         let mut vertices = Vec::new();
         let mut indices: Vec<u16> = Vec::new();
-        let atlas = ChunkTextureAtlas::new(device, queue, self, block_registry);
+        let atlas = ChunkTextureAtlas::new(device, queue, self, block_registry, texture_atlas_bind_group_layout);
         for x in 0..CHUNK_SIZE_X {
             for y in 0..CHUNK_SIZE_Y {
                 for z in 0..CHUNK_SIZE_Z {
@@ -318,8 +319,7 @@ impl Chunk {
                 }
             }
         }
-
-        (vertices, indices)
+        (vertices, indices, atlas)
     }
 }
 
@@ -385,7 +385,7 @@ impl MeshPool {
 
 struct ChunkMeshManager {
     mesh_pool: MeshPool,
-    active_meshes: HashMap<IVec3, (BufferPair, u32)>, // (buffers, index_count)
+    active_meshes: HashMap<IVec3, (BufferPair, u32, ChunkTextureAtlas)>, // (buffers, index_count)
     queue: Arc<wgpu::Queue>,
 }
 
@@ -398,13 +398,12 @@ impl ChunkMeshManager {
         }
     }
 
-    fn update_mesh(&mut self, chunk_pos: IVec3, vertices: &[Vertex], indices: &[u16]) {
-        let buffers = if let Some((existing_buffers, _)) = self.active_meshes.remove(&chunk_pos) {
+    fn update_mesh(&mut self, chunk_pos: IVec3, vertices: &[Vertex], indices: &[u16], atlas: &ChunkTextureAtlas) {
+        let buffers = if let Some((existing_buffers, _, _)) = self.active_meshes.remove(&chunk_pos) {
             existing_buffers
         } else {
             self.mesh_pool.acquire_buffers()
         };
-
         // Upload new mesh data
         self.queue
             .write_buffer(&buffers.vertex_buffer, 0, bytemuck::cast_slice(vertices));
@@ -412,11 +411,11 @@ impl ChunkMeshManager {
             .write_buffer(&buffers.index_buffer, 0, bytemuck::cast_slice(indices));
 
         self.active_meshes
-            .insert(chunk_pos, (buffers, indices.len() as u32));
+            .insert(chunk_pos, (buffers, indices.len() as u32, atlas.clone()));
     }
 
     fn remove_mesh(&mut self, chunk_pos: &IVec3) {
-        if let Some((buffers, _)) = self.active_meshes.remove(chunk_pos) {
+        if let Some((buffers, _, _)) = self.active_meshes.remove(chunk_pos) {
             self.mesh_pool.return_buffers(buffers);
         }
     }
@@ -472,18 +471,38 @@ impl ChunkManager {
     pub fn process_mesh_updates(&mut self) {
         // Process a limited number of updates per frame
         const UPDATES_PER_FRAME: usize = 4;
-
+        let texture_atlas_bind_group_layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Chunk Texture Bind Group Layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
         for _ in 0..UPDATES_PER_FRAME {
             if let Some(chunk_pos) = self.update_queue.pop_front() {
                 if let Some(chunk) = self.chunks.get(&chunk_pos) {
                     let adjacent_chunks = self.get_adjacent_chunks(chunk_pos);
-                    let (vertices, indices) = chunk.generate_mesh_data(&self.device, &self.queue, Some(&adjacent_chunks), &self.block_registry);
+                    let (vertices, indices, atlas) = chunk.generate_mesh_data(&self.device, &self.queue, Some(&adjacent_chunks), &self.block_registry, &texture_atlas_bind_group_layout);
 
                     if vertices.is_empty() {
                         self.mesh_manager.remove_mesh(&chunk_pos);
                     } else {
                         self.mesh_manager
-                            .update_mesh(chunk_pos, &vertices, &indices);
+                            .update_mesh(chunk_pos, &vertices, &indices, &atlas);
                     }
                 }
             } else {
@@ -493,15 +512,17 @@ impl ChunkManager {
     }
 
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera:&mut Camera) {
-        for (chunk_pos, (buffers, index_count)) in &self.mesh_manager.active_meshes {
+        for (chunk_pos, (buffers, index_count, atlas)) in &self.mesh_manager.active_meshes {
             // Skip chunks outside view frustum
             // if !view_frustum.contains_chunk(*chunk_pos) {
             //     continue;
             // }
             let chunk_bbox = BoundingBox::from_chunk_position(*chunk_pos);
-            if (!camera.is_in_frustum(&chunk_bbox)){
-                continue;;
+            if !camera.is_in_frustum(&chunk_bbox){
+                continue;
             }
+            //render_pass.set_bind_group(4, &atlas.bind_group, &[]);
+            render_pass.set_bind_group(3, &atlas.bind_group, &[]);
             render_pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
             render_pass.set_index_buffer(buffers.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..*index_count, 0, 0..1);

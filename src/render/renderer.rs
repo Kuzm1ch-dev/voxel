@@ -7,7 +7,7 @@ use std::time::Instant;
 use wgpu::util::DeviceExt;
 use winit::event::{DeviceId, ElementState, KeyEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::window::Window;
+use winit::window::{CursorGrabMode, Window};
 
 use crate::img_utils::RgbaImg;
 use crate::model::vertex::Vertex;
@@ -15,10 +15,12 @@ use crate::world::block::BlockTextures;
 use crate::world::block_registry::BlockRegistry;
 use crate::world::chunk::ChunkManager;
 use crate::world::world::World;
-use wgpu::{BufferDescriptor, SamplerDescriptor, ShaderSource, TextureFormat, TextureView};
+use wgpu::{
+    BufferDescriptor, InstanceFlags, SamplerDescriptor, ShaderSource, TextureFormat, TextureView,
+};
 
 use super::camera::{Camera, CameraController, CameraUniform};
-use super::light::{LightUniform, LightViewProj};
+use super::light::LightUniform;
 use super::profiler::{self, ProfileScope, Profiler};
 
 // Usage in main renderer
@@ -49,11 +51,6 @@ pub struct Renderer<'window> {
     shadow_bind_group: wgpu::BindGroup,
     shadow_pipeline: wgpu::RenderPipeline,
     light_projection: glam::Mat4,
-
-    light_view: LightViewProj,
-    light_view_buffer: wgpu::Buffer,
-    light_view_bind_group: wgpu::BindGroup,
-
     world: World,
     block_registry: Arc<BlockRegistry>,
     window_size: winit::dpi::PhysicalSize<u32>,
@@ -65,8 +62,23 @@ impl<'window> Renderer<'window> {
     }
 
     pub async fn new_async(window: Arc<Window>) -> Self {
+        window.set_cursor_visible(false);
+        window.set_cursor_grab(CursorGrabMode::Confined)
+            .or_else(|_e| window.set_cursor_grab(CursorGrabMode::Locked))
+            .expect("Failed to grab cursor");
 
-        let instance = wgpu::Instance::default();
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::DX12,
+            flags: InstanceFlags::all(),
+            ..Default::default()
+        });
+        let window_size = window.inner_size();
+        let center = winit::dpi::PhysicalPosition::new(
+            window_size.width as i32 / 2,
+            window_size.height as i32 / 2
+        );
+        window.set_cursor_position(center)
+        .expect("Failed to set cursor position");
         let surface = instance.create_surface(Arc::clone(&window)).unwrap();
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -128,11 +140,23 @@ impl<'window> Renderer<'window> {
             }],
         });
         //Light
+        let light_position = glam::Vec3::new(20.0, 20.0, 20.0);
+        let light_target = glam::Vec3::ZERO;
+        let light_up = glam::Vec3::Y;
+
+        let light_view = glam::Mat4::look_at_rh(light_position, light_target, light_up);
+        let light_projection = glam::Mat4::orthographic_rh(
+            -50.0, 50.0, // left, right
+            -50.0, 50.0, // bottom, top
+            -50.0, 50.0, // near, far
+        );
+        let light_view_proj = light_projection * light_view;
         let light_uniform = LightUniform::new(
             [-1.0, -1.0, -1.0], // direction (will be normalized in shader)
             [1.0, 1.0, 1.0],    // white light
             1.0,                // intensity
             0.3,                // ambient strength
+            light_view_proj.to_cols_array_2d(),
         );
         let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Light Buffer"),
@@ -144,7 +168,7 @@ impl<'window> Renderer<'window> {
                 label: Some("Light Bind Group Layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -165,8 +189,8 @@ impl<'window> Renderer<'window> {
         let shadow_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Shadow Texture"),
             size: wgpu::Extent3d {
-                width: 1024,
-                height: 1024,
+                width: 2048,
+                height: 2048,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -188,48 +212,7 @@ impl<'window> Renderer<'window> {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
-
         // Create light view-projection matrix
-        let light_position = glam::Vec3::new(20.0, 20.0, 20.0);
-        let light_target = glam::Vec3::ZERO;
-        let light_up = glam::Vec3::Y;
-
-        let light_view = glam::Mat4::look_at_rh(light_position, light_target, light_up);
-        let light_projection = glam::Mat4::orthographic_rh(
-            -50.0, 50.0,  // left, right
-            -50.0, 50.0,  // bottom, top
-            -50.0, 50.0,  // near, far
-        );
-        let light_view_proj = light_projection * light_view;
-        let light_view_proj = LightViewProj::new(light_view_proj.to_cols_array_2d());
-        let light_view_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Light View Buffer"),
-            contents: bytemuck::cast_slice(&[light_view_proj]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        let light_view_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Light View Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-        let light_view_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Light View Bind Group"),
-            layout: &light_view_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: light_view_buffer.as_entire_binding(),
-            }],
-        });
-
         let shadow_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Shadow Bind Group Layout"),
@@ -269,22 +252,45 @@ impl<'window> Renderer<'window> {
             ],
         });
 
+        //Texture
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Chunk Texture Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
         //
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &camera_bind_group_layout, 
-                    &light_bind_group_layout, 
-                    &shadow_bind_group_layout, 
-                    &light_view_bind_group_layout
-                    ],
+                    &camera_bind_group_layout,
+                    &light_bind_group_layout,
+                    &shadow_bind_group_layout,
+                    &texture_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
         let shadow_render_pipeline_layot =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Shadow Render Pipeline Layout"),
-                bind_group_layouts: &[&light_view_bind_group_layout],
+                bind_group_layouts: &[&light_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -308,7 +314,7 @@ impl<'window> Renderer<'window> {
             BlockTextures::uniform("grass".to_string()),
             Path::new("assets/textures/blocks"),
         );
-        let _ =  block_registry.register_block(
+        let _ = block_registry.register_block(
             &arc_device,
             &arc_queue,
             "dirt",
@@ -319,16 +325,25 @@ impl<'window> Renderer<'window> {
             &arc_device,
             &arc_queue,
             "stone",
-            BlockTextures::uniform("dirt".to_string()),
+            BlockTextures::new(
+                "stone_u".to_string(),
+                "stone_b".to_string(),
+                "stone_n".to_string(),
+                "stone_s".to_string(),
+                "stone_w".to_string(),
+                "stone_e".to_string(),
+            ),
             Path::new("assets/textures/blocks"),
         );
         let arc_block_registry = Arc::new(block_registry);
         //
 
-        let mut world = World::new(arc_block_registry.clone(),arc_device.clone(), arc_queue.clone());
-        println!("1");
+        let mut world = World::new(
+            arc_block_registry.clone(),
+            arc_device.clone(),
+            arc_queue.clone(),
+        );
         world.create_initial_chunks(1);
-        println!("2");
         let model: glam::Mat4 = glam::Mat4::from_rotation_x(camera_controller.rotation_x)
             * glam::Mat4::from_rotation_y(camera_controller.rotation_y)
             * glam::Mat4::from_rotation_z(camera_controller.rotation_z);
@@ -368,9 +383,6 @@ impl<'window> Renderer<'window> {
             shadow_bind_group,
             shadow_pipeline,
             light_projection,
-            light_view: light_view_proj,
-            light_view_buffer,
-            light_view_bind_group,
 
             world,
             block_registry: arc_block_registry,
@@ -428,9 +440,8 @@ impl<'window> Renderer<'window> {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        self.device.poll(wgpu::Maintain::Wait);
+        //self.device.poll(wgpu::Maintain::Wait);
         self.profiler.start_frame();
-        self.profiler.begin_scope("Main Pass");
         let delta_time = self.start_time.elapsed().as_secs_f32() - self.running_time;
         self.running_time += delta_time;
         self.update(delta_time);
@@ -463,7 +474,7 @@ impl<'window> Renderer<'window> {
             });
 
             shadow_pass.set_pipeline(&self.shadow_pipeline);
-            shadow_pass.set_bind_group(0, &self.light_view_bind_group, &[]);
+            shadow_pass.set_bind_group(0, &self.light_bind_group, &[]);
             self.world.render(&mut shadow_pass, &mut self.camera);
         }
         {
@@ -494,7 +505,6 @@ impl<'window> Renderer<'window> {
             rpass.set_bind_group(0, &self.camera_bind_group, &[]);
             rpass.set_bind_group(1, &self.light_bind_group, &[]);
             rpass.set_bind_group(2, &self.shadow_bind_group, &[]);
-            rpass.set_bind_group(3, &self.light_view_bind_group, &[]);
             self.world.render(&mut rpass, &mut self.camera);
             // rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
@@ -507,7 +517,6 @@ impl<'window> Renderer<'window> {
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         surface_texture.present();
-        self.profiler.end_scope("Main Pass");
         self.profiler.end_frame();
         Ok(())
     }
@@ -570,7 +579,7 @@ fn create_pipeline(
         }),
         primitive: wgpu::PrimitiveState {
             front_face: wgpu::FrontFace::Ccw, // or Cw depending on your winding
-            cull_mode: None,                  // or None to disable culling for debugging
+            cull_mode: Some(wgpu::Face::Front), // or None to disable culling for debugging
             ..Default::default()
         },
         depth_stencil: Some(wgpu::DepthStencilState {
@@ -616,7 +625,7 @@ fn create_shadow_pipeline(
             topology: wgpu::PrimitiveTopology::TriangleList,
             strip_index_format: None,
             front_face: wgpu::FrontFace::Ccw,
-            cull_mode: Some(wgpu::Face::Back),
+            cull_mode: Some(wgpu::Face::Front),
             unclipped_depth: false,
             polygon_mode: wgpu::PolygonMode::Fill,
             conservative: false,

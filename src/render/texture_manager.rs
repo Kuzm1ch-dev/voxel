@@ -4,14 +4,14 @@ use std::path::Path;
 use crate::world::block_registry::BlockRegistry;
 use crate::world::chunk::{Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ChunkTextureAtlas {
     texture: wgpu::Texture,
     view: wgpu::TextureView,
     sampler: wgpu::Sampler,
-    bind_group: wgpu::BindGroup,
-    texture_map: Vec<String>, // Lookup table for block -> texture mapping
-    texture_count: u32,
+    pub bind_group: wgpu::BindGroup,
+    pub texture_map: Vec<String>, // Lookup table for block -> texture mapping
+    pub texture_count: u32,
 }
 
 impl ChunkTextureAtlas {
@@ -20,6 +20,7 @@ impl ChunkTextureAtlas {
         queue: &wgpu::Queue,
         chunk: &Chunk,
         block_registry: &BlockRegistry,
+        bind_group_layout: &wgpu::BindGroupLayout
     ) -> Self {
         // Collect unique textures used in this chunk
         let mut unique_textures = std::collections::HashSet::new();
@@ -60,7 +61,6 @@ impl ChunkTextureAtlas {
 
         // Load and copy each texture into the array
         for (i, texture_name) in texture_indices.iter().enumerate() {
-            println!("{}",texture_name);
             let texture_path = Path::new("assets/textures/blocks").join(format!("{}.png", texture_name));
             let img = image::open(texture_path).unwrap().to_rgba8();
             
@@ -106,27 +106,6 @@ impl ChunkTextureAtlas {
         });
 
         // Create bind group
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Chunk Texture Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2Array,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Chunk Texture Bind Group"),

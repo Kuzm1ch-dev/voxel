@@ -1,6 +1,7 @@
 use std::{array, sync::Arc};
 
 use glam::IVec3;
+use wgpu::BindGroupLayout;
 
 use crate::{render::camera::Camera, world::{block::BlockType, chunk::{Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z}}};
 
@@ -33,13 +34,10 @@ impl World {
     }
 
     pub fn create_initial_chunks(&mut self, size: i32) {
-        for x in 0..=size {
-            for z in 0..=size {
-                println!("{} {}", x,z);
+        for x in -size..=size {
+            for z in -size..=size {
                 let chunk_pos = IVec3::new(x, 0, z);
-                println!("chunk_pos");
                 let blocks = self.generate_test_chunk(x, z);
-                println!("blocks after");
                 self.chunk_manager.update_chunk(chunk_pos, blocks);
             }
         }
@@ -50,12 +48,10 @@ impl World {
         chunk_x: i32,
         chunk_z: i32,
     ) -> Vec<Option<BlockType>> {
-        println!("blocks start");
         let mut blocks = vec![
             None;
             CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z
         ];
-        println!("blocks");
         // Generate some test terrain
         for x in 0..CHUNK_SIZE_X {
             for z in 0..CHUNK_SIZE_Z {

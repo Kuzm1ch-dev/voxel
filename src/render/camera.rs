@@ -1,6 +1,8 @@
 use glam::{IVec3, Vec3};
 use winit::{event::ElementState, keyboard::KeyCode};
 
+use crate::world::chunk::{CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
+
 pub struct BoundingBox {
     min: Vec3,
     max: Vec3,
@@ -25,11 +27,16 @@ impl BoundingBox {
 
     pub fn from_chunk_position(chunk_position: IVec3) -> Self {
         let min = Vec3::new(
-            chunk_position.x as f32 * 16.0,
-            chunk_position.y as f32 * 16.0,
-            chunk_position.z as f32 * 16.0,
+            chunk_position.x as f32 * CHUNK_SIZE_X as f32,
+            chunk_position.y as f32 * CHUNK_SIZE_Y as f32,
+            chunk_position.z as f32 * CHUNK_SIZE_Z as f32,
         );
-        let max = min + Vec3::new(16.0, 16.0, 16.0);
+        let max = min
+            + Vec3::new(
+                CHUNK_SIZE_X as f32,
+                CHUNK_SIZE_Y as f32,
+                CHUNK_SIZE_Z as f32,
+            );
 
         Self { min, max }
     }
@@ -57,6 +64,11 @@ impl Camera {
             znear: 0.1,
             zfar: 100.0,
         }
+    }
+
+    fn get_yaw(&self) -> f32 {
+        let forward = (self.target - self.eye).normalize();
+        forward.y.atan2(forward.x)
     }
 
     pub fn build_view_projection_matrix(&self) -> glam::Mat4 {
@@ -91,12 +103,24 @@ impl Camera {
     }
 
     pub fn is_in_frustum(&self, bbox: &BoundingBox) -> bool {
-        let frustum_planes = self.calculate_frustum_planes(); 
+        let frustum_planes = self.calculate_frustum_planes();
         for plane in frustum_planes {
             let p = Vec3::new(
-                if plane.x > 0.0 { bbox.max.x } else { bbox.min.x },
-                if plane.y > 0.0 { bbox.max.y } else { bbox.min.y },
-                if plane.z > 0.0 { bbox.max.z } else { bbox.min.z },
+                if plane.x > 0.0 {
+                    bbox.max.x
+                } else {
+                    bbox.min.x
+                },
+                if plane.y > 0.0 {
+                    bbox.max.y
+                } else {
+                    bbox.min.y
+                },
+                if plane.z > 0.0 {
+                    bbox.max.z
+                } else {
+                    bbox.min.z
+                },
             );
             if plane.dot(p.extend(1.0)) < 0.0 {
                 return false;
