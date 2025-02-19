@@ -10,7 +10,7 @@ pub struct BlockRegistry {
 }
 
 impl BlockRegistry {
-    pub fn new(device: Arc<wgpu::Device>) -> Self {
+    pub fn new(device: &wgpu::Device) -> Self {
         Self {
             blocks: HashMap::new(),
             texture_manager: TextureManager::new(&device),

@@ -1,8 +1,9 @@
 use glam::IVec3;
+use tokio::sync::RwLock;
 use wgpu::naga::Block;
 use std::array;
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -95,7 +96,7 @@ impl Chunk {
         vertices: &mut Vec<Vertex>,
         indices: &mut Vec<u16>,
         adjacent_chunks: Option<&AdjacentChunks>,
-        block_registry: &Arc<BlockRegistry>,
+        block_registry: &BlockRegistry,
         atlas: &ChunkTextureAtlas
     ) {
         //let block_type = self.blocks[x][y][z].clone();
@@ -303,7 +304,7 @@ impl Chunk {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         adjacent_chunks: Option<&AdjacentChunks>,
-        block_registry: &Arc<BlockRegistry>,
+        block_registry: &BlockRegistry,
         texture_atlas_bind_group_layout: &BindGroupLayout
     ) -> (Vec<Vertex>, Vec<u16>, ChunkTextureAtlas) {
         let mut vertices = Vec::new();
@@ -427,11 +428,11 @@ pub struct ChunkManager {
     update_queue: VecDeque<IVec3>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
-    block_registry: Arc<BlockRegistry>
+    block_registry: Arc<Mutex<BlockRegistry>>
 }
 
 impl ChunkManager {
-    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>, block_registry: Arc<BlockRegistry>) -> Self {
+    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>, block_registry: Arc<Mutex<BlockRegistry>>) -> Self {
         Self {
             chunks: HashMap::new(),
             mesh_manager: ChunkMeshManager::new(device.clone(), queue.clone()),
@@ -496,8 +497,9 @@ impl ChunkManager {
             if let Some(chunk_pos) = self.update_queue.pop_front() {
                 if let Some(chunk) = self.chunks.get(&chunk_pos) {
                     let adjacent_chunks = self.get_adjacent_chunks(chunk_pos);
-                    let (vertices, indices, atlas) = chunk.generate_mesh_data(&self.device, &self.queue, Some(&adjacent_chunks), &self.block_registry, &texture_atlas_bind_group_layout);
-
+                    let block_registry_lock = self.block_registry.lock().unwrap();
+                    let (vertices, indices, atlas) = chunk.generate_mesh_data(&self.device, &self.queue, Some(&adjacent_chunks), &block_registry_lock, &texture_atlas_bind_group_layout);
+                    drop(block_registry_lock);
                     if vertices.is_empty() {
                         self.mesh_manager.remove_mesh(&chunk_pos);
                     } else {

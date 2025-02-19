@@ -1,24 +1,57 @@
-use std::{array, sync::Arc};
+use std::{array, path::Path, sync::{Arc, Mutex}};
 
 use glam::IVec3;
-use wgpu::BindGroupLayout;
+use wgpu::{naga::Block, BindGroupLayout, Device, Queue};
 
 use crate::{render::camera::Camera, world::{block::BlockType, chunk::{Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z}}};
 
-use super::{block_registry::{self, BlockRegistry}, chunk::ChunkManager};
+use super::{block::BlockTextures, block_registry::{self, BlockRegistry}, chunk::ChunkManager};
 
 pub struct World {
-    block_registry: Arc<BlockRegistry>,
+    block_registry: Arc<Mutex<BlockRegistry>>,
     chunk_manager: ChunkManager,
 }
 
 impl World {
-    pub fn new(block_registry: Arc<BlockRegistry>,device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
-        let arc_block_registry = block_registry.clone();
+    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+        let block_registry = BlockRegistry::new(&device);
+        let _block_registry = Arc::new(Mutex::new(block_registry));
         Self {
-            block_registry,
-            chunk_manager: ChunkManager::new(device, queue, arc_block_registry),
+            block_registry: _block_registry.clone(),
+            chunk_manager: ChunkManager::new(device, queue, _block_registry),
         }
+    }
+
+    pub fn register_blocks(&mut self, device: &Device, queue: &Queue){
+        let mut block_registry_lock = self.block_registry.lock().unwrap();
+        let _ = block_registry_lock.register_block(
+            &device,
+            &queue,
+            "grass",
+            BlockTextures::uniform("grass".to_string()),
+            Path::new("assets/textures/blocks"),
+        );
+        let _ = block_registry_lock.register_block(
+            &device,
+            &queue,
+            "dirt",
+            BlockTextures::uniform("dirt".to_string()),
+            Path::new("assets/textures/blocks"),
+        );
+        let _ = block_registry_lock.register_block(
+            &device,
+            &queue,
+            "stone",
+            BlockTextures::new(
+                "stone_u".to_string(),
+                "stone_b".to_string(),
+                "stone_n".to_string(),
+                "stone_s".to_string(),
+                "stone_w".to_string(),
+                "stone_e".to_string(),
+            ),
+            Path::new("assets/textures/blocks"),
+        );
     }
 
     pub fn get_chunk_manager(&self) -> &ChunkManager {
@@ -65,13 +98,15 @@ impl World {
                 // Fill blocks up to the height
                 for y in 0..height.min(CHUNK_SIZE_Y) {
                     let index = Chunk::get_index(x, y, z);
+                    let block_registry_lock = self.block_registry.lock().unwrap();
                     blocks[index] = if y == height - 1 {
-                        self.block_registry.get_block("grass")
+                        block_registry_lock.get_block("grass")
                     } else if y > height - 4 {
-                        self.block_registry.get_block("dirt")
+                        block_registry_lock.get_block("dirt")
                     } else {
-                        self.block_registry.get_block("stone")
+                        block_registry_lock.get_block("stone")
                     };
+                    drop(block_registry_lock)
                 }
             }
         }
