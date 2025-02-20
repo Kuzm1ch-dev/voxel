@@ -228,6 +228,7 @@ impl CameraController {
 pub struct CameraUniform {
     pub view_proj: [[f32; 4]; 4],
     pub model: [[f32; 4]; 4],
+    pub view_position: [f32; 3],
 }
 
 impl CameraUniform {
@@ -244,5 +245,6 @@ impl CameraUniform {
         let view_proj = camera.build_view_projection_matrix();
         self.view_proj = view_proj.to_cols_array_2d();
         self.model = model.to_cols_array_2d();
+        self.view_position = camera.eye.to_array();
     }
 }

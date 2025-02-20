@@ -18,7 +18,8 @@ use crate::world::block_registry::BlockRegistry;
 use crate::world::chunk::ChunkManager;
 use crate::world::world::World;
 use wgpu::{
-    BufferDescriptor, InstanceFlags, SamplerDescriptor, ShaderSource, TextureFormat, TextureView,
+    BufferDescriptor, CommandEncoder, InstanceFlags, SamplerDescriptor, ShaderSource,
+    TextureFormat, TextureView,
 };
 
 use super::camera::{Camera, CameraController, CameraUniform};
@@ -55,6 +56,8 @@ pub struct Renderer<'window> {
     light_projection: glam::Mat4,
     world: World,
     window_size: winit::dpi::PhysicalSize<u32>,
+    ssao_compute_bind_group: wgpu::BindGroup,
+    compute_pipeline: wgpu::ComputePipeline,
 }
 
 impl<'window> Renderer<'window> {
@@ -93,14 +96,49 @@ impl<'window> Renderer<'window> {
             .await
             .expect("Failed to find an appropriate adapter");
         // Create the logical device and command queue
+        let limits = wgpu::Limits {
+            max_texture_dimension_1d: 2048, // *
+            max_texture_dimension_2d: 2048, // *
+            max_texture_dimension_3d: 256,  // *
+            max_texture_array_layers: 256,
+            max_bind_groups: 4,
+            max_bindings_per_bind_group: 1000,
+            max_dynamic_uniform_buffers_per_pipeline_layout: 8,
+            max_dynamic_storage_buffers_per_pipeline_layout: 0, // +
+            max_sampled_textures_per_shader_stage: 16,
+            max_samplers_per_shader_stage: 16,
+            max_storage_buffers_per_shader_stage: 0,   // * +
+            max_storage_textures_per_shader_stage: 1,  // +
+            max_uniform_buffers_per_shader_stage: 11,  // +
+            max_uniform_buffer_binding_size: 16 << 10, // * (16 KiB)
+            max_storage_buffer_binding_size: 0,        // * +
+            max_vertex_buffers: 8,
+            max_vertex_attributes: 16,
+            max_vertex_buffer_array_stride: 255, // +
+            min_subgroup_size: 0,
+            max_subgroup_size: 0,
+            max_push_constant_size: 0,
+            min_uniform_buffer_offset_alignment: 256,
+            min_storage_buffer_offset_alignment: 256,
+            max_inter_stage_shader_components: 31,
+            max_color_attachments: 8,
+            max_color_attachment_bytes_per_sample: 32,
+            max_compute_workgroup_storage_size: 0,      // +
+            max_compute_invocations_per_workgroup: 256, // +
+            max_compute_workgroup_size_x: 16,           // +
+            max_compute_workgroup_size_y: 16,           // +
+            max_compute_workgroup_size_z: 1,            // +
+            max_compute_workgroups_per_dimension: 256,  // +
+            max_buffer_size: 256 << 20,                 // (256 MiB),
+            max_non_sampler_bindings: 1_000_000,
+        };
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    required_features: wgpu::Features::empty(),
+                    required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
                     // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
-                    required_limits: wgpu::Limits::downlevel_webgl2_defaults()
-                        .using_resolution(adapter.limits()),
+                    required_limits: limits,
                     memory_hints: wgpu::MemoryHints::Performance,
                 },
                 None,
@@ -118,7 +156,8 @@ impl<'window> Renderer<'window> {
         //Camera
         let camera_buffer = arc_device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Uniform Buffer"),
-            size: std::mem::size_of::<CameraUniform>() as u64,
+            //size: std::mem::size_of::<CameraUniform>() as u64,
+            size: 144 as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -127,7 +166,7 @@ impl<'window> Renderer<'window> {
                 label: Some("Uniform Bind Group Layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -159,7 +198,7 @@ impl<'window> Renderer<'window> {
         let light_uniform = LightUniform::new(
             [-1.0, -1.0, -1.0], // direction (will be normalized in shader)
             [1.0, 1.0, 1.0],    // white light
-            1.0,                // intensity
+            0.6,                // intensity
             0.3,                // ambient strength
             light_view_proj.to_cols_array_2d(),
         );
@@ -258,6 +297,9 @@ impl<'window> Renderer<'window> {
         });
 
         //Texture
+        let depth_texture =
+            Self::create_depth_texture(&arc_device, &surface_config, "Depth Texture");
+
         let texture_bind_group_layout =
             arc_device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Chunk Texture Bind Group Layout"),
@@ -280,7 +322,73 @@ impl<'window> Renderer<'window> {
                     },
                 ],
             });
+        //SSAO
+        let ssao_texture = arc_device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("SSAO Texture"),
+            size: wgpu::Extent3d {
+                width: size.width,
+                height: size.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let ssao_view = ssao_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let ssao_compute_bind_group_layout =
+            arc_device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Depth,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: wgpu::TextureFormat::Rgba16Float,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                ],
+                label: Some("SSAO Bind Group Layout"),
+            });
+
+        let ssao_compute_bind_group = arc_device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &ssao_compute_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&depth_texture),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&ssao_view),
+                },
+            ],
+            label: Some("SSAO Bind Group"),
+        });
+
         //
+        let compute_pipeline_layout =
+            arc_device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                bind_group_layouts: &[&ssao_compute_bind_group_layout],
+                push_constant_ranges: &[],
+                label: Some("SSAO Pipeline Layout"),
+            });
         let render_pipeline_layout =
             arc_device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
@@ -302,12 +410,10 @@ impl<'window> Renderer<'window> {
         let render_pipeline =
             create_pipeline(&arc_device, surface_config.format, &render_pipeline_layout);
         let shadow_pipeline = create_shadow_pipeline(&arc_device, &shadow_render_pipeline_layot);
+        let compute_pipeline = create_compute_pipeline(&arc_device, &compute_pipeline_layout);
 
         let camera = Camera::new(surface_config.width, surface_config.height);
         let camera_controller = CameraController::new(16.0);
-        let depth_texture =
-            Self::create_depth_texture(&arc_device, &surface_config, "Depth Texture");
-
         // Create Chunk Manager
 
         let mut world = World::new(arc_device.clone(), arc_queue.clone());
@@ -320,6 +426,7 @@ impl<'window> Renderer<'window> {
         let camera_uniform = CameraUniform {
             view_proj: view_proj.to_cols_array_2d(),
             model: model.to_cols_array_2d(),
+            view_position: camera.eye.to_array(),
         };
 
         let start_time = Instant::now();
@@ -355,6 +462,8 @@ impl<'window> Renderer<'window> {
 
             world,
             window_size: size,
+            ssao_compute_bind_group,
+            compute_pipeline,
         }
     }
 
@@ -424,69 +533,80 @@ impl<'window> Renderer<'window> {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         self.world.process_mesh_updates();
-        {
-            let _shadow_scope = ProfileScope::new("Shadow Pass", &mut self.profiler);
-            let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Shadow Pass"),
-                color_attachments: &[], // No color attachments for shadow pass
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.shadow_view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            shadow_pass.set_pipeline(&self.shadow_pipeline);
-            shadow_pass.set_bind_group(0, &self.light_bind_group, &[]);
-            self.world.render(&mut shadow_pass, &mut self.camera);
-        }
-        {
-            let _render_scope = ProfileScope::new("Render Pass", &mut self.profiler);
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &texture_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLUE),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_texture,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-            // rpass.set_bind_group(0, &self.bind_group, &[]);
-            rpass.set_pipeline(&self.render_pipeline);
-            rpass.set_bind_group(0, &self.camera_bind_group, &[]);
-            rpass.set_bind_group(1, &self.light_bind_group, &[]);
-            rpass.set_bind_group(2, &self.shadow_bind_group, &[]);
-            self.world.render(&mut rpass, &mut self.camera);
-            // rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-
-            // rpass.set_index_buffer(
-            //     self.vertex_index_buffer.slice(..),
-            //     wgpu::IndexFormat::Uint16,
-            // );
-            //rpass.draw_indexed(0..vertex_index_list.len() as u32, 0, 0..1);
-            //rpass.draw(0..vertex_list.len() as u32, 0..1);
-        }
+        self.shadow_render_pass(&mut encoder);
+        //self.compute_render_pass(&mut encoder);
+        self.main_render_pass(&mut encoder, &texture_view);
         self.queue.submit(std::iter::once(encoder.finish()));
         surface_texture.present();
         self.profiler.end_frame();
         Ok(())
+    }
+
+    pub fn compute_render_pass(&mut self, encoder: &mut CommandEncoder) {
+        let _shadow_scope = ProfileScope::new("SSAO Pass", &mut self.profiler);
+        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("SSAO Compute Pass"),
+            timestamp_writes: Default::default(),
+        });
+        cpass.set_pipeline(&self.compute_pipeline);
+        cpass.set_bind_group(0, &self.ssao_compute_bind_group, &[]);
+        cpass.dispatch_workgroups(
+            (self.window_size.width / 16) as u32,
+            (self.window_size.height / 16) as u32,
+            1,
+        );
+    }
+
+    pub fn shadow_render_pass(&mut self, encoder: &mut CommandEncoder) {
+        let _shadow_scope = ProfileScope::new("Shadow Pass", &mut self.profiler);
+        let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Shadow Pass"),
+            color_attachments: &[], // No color attachments for shadow pass
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.shadow_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        shadow_pass.set_pipeline(&self.shadow_pipeline);
+        shadow_pass.set_bind_group(0, &self.light_bind_group, &[]);
+        self.world.render(&mut shadow_pass, &mut self.camera);
+    }
+
+    pub fn main_render_pass(&mut self, encoder: &mut CommandEncoder, texture_view: &TextureView) {
+        let _render_scope = ProfileScope::new("Render Pass", &mut self.profiler);
+        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: texture_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLUE),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.depth_texture,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        rpass.set_pipeline(&self.render_pipeline);
+        rpass.set_bind_group(0, &self.camera_bind_group, &[]);
+        rpass.set_bind_group(1, &self.light_bind_group, &[]);
+        rpass.set_bind_group(2, &self.shadow_bind_group, &[]);
+        self.world.render(&mut rpass, &mut self.camera);
     }
 
     pub fn keyboard_input(
@@ -612,6 +732,27 @@ fn create_shadow_pipeline(
         multisample: wgpu::MultisampleState::default(),
         multiview: None,
     })
+}
+
+fn create_compute_pipeline(
+    device: &wgpu::Device,
+    pipeline_layout: &wgpu::PipelineLayout,
+) -> wgpu::ComputePipeline {
+    let compute_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("SSAO Compute Shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("./shaders/ssao_compute.wgsl").into()),
+    });
+
+    let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        cache: None,
+        compilation_options: Default::default(),
+        label: Some("SSAO Compute Pipeline"),
+        layout: Some(&pipeline_layout),
+        module: &compute_shader,
+        entry_point: Some("main"),
+    });
+
+    compute_pipeline
 }
 
 fn create_noise_texture(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
