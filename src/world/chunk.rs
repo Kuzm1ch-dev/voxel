@@ -197,7 +197,6 @@ impl Chunk {
                     Direction::East => block.textures.right.clone(), 
                     Direction::West => block.textures.left.clone(), 
                 };
-                // Add vertices for this face
                 for i in 0..4 {
                     vertices.push(Vertex::new(
                         [
@@ -223,7 +222,7 @@ impl Chunk {
             }
         }
     }
-    
+
     fn should_render_face(
         &self,
         x: i32,
