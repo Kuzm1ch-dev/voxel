@@ -15,6 +15,7 @@ use winit::window::Window;
 use crate::img_utils::RgbaImg;
 use crate::model::vertex::Vertex;
 use crate::render::camera::{BoundingBox, Camera};
+use crate::render::profiler::Profiler;
 use crate::render::texture_manager::ChunkTextureAtlas;
 use wgpu::{BindGroupLayout, BufferDescriptor, SamplerDescriptor, ShaderSource, TextureView};
 
@@ -694,7 +695,7 @@ impl ChunkManager {
         let queue_clone = queue.clone();
         let block_registry_clone = block_registry.clone();
         // Spawn mesh generation thread
-        let worker = thread::spawn(move || {
+        thread::spawn(move || {
             while let Ok(task) = task_receiver.recv() {
                 let chunk_lock = task.chunk.lock().unwrap();
                 let adjacent_chunks = task.neighbors.clone();
@@ -742,7 +743,6 @@ impl ChunkManager {
                 if result_sender.send(result).is_err() {
                     break;
                 }
-                println!("Get task on (re)generate chunk");
             }
         });
         Self {
@@ -799,32 +799,8 @@ impl ChunkManager {
         }
     }
 
-    pub fn process_mesh_updates(&mut self) {
-        // Process a limited number of updates per frame
-        const UPDATES_PER_FRAME: usize = 4;
-        // let texture_atlas_bind_group_layout =
-        //     self.device
-        //         .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        //             label: Some("Chunk Texture Bind Group Layout"),
-        //             entries: &[
-        //                 wgpu::BindGroupLayoutEntry {
-        //                     binding: 0,
-        //                     visibility: wgpu::ShaderStages::FRAGMENT,
-        //                     ty: wgpu::BindingType::Texture {
-        //                         sample_type: wgpu::TextureSampleType::Float { filterable: true },
-        //                         view_dimension: wgpu::TextureViewDimension::D2Array,
-        //                         multisampled: false,
-        //                     },
-        //                     count: None,
-        //                 },
-        //                 wgpu::BindGroupLayoutEntry {
-        //                     binding: 1,
-        //                     visibility: wgpu::ShaderStages::FRAGMENT,
-        //                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-        //                     count: None,
-        //                 },
-        //             ],
-        //         });
+    pub fn process_mesh_updates(&mut self, profiler: &mut Profiler) {
+        profiler.begin_scope("Mesh Receiver");
         while let Ok(result) = self.mesh_receiver.try_recv() {
             if result.mesh_data.vertices.is_empty() {
                 self.mesh_manager.remove_mesh(&result.chunk_pos);
@@ -833,51 +809,30 @@ impl ChunkManager {
                     .update_mesh(result.chunk_pos, &result.mesh_data.vertices, &result.mesh_data.indices, &result.mesh_data.atlas);
             }
         }
-        for _ in 0..UPDATES_PER_FRAME {
-            if let Some(chunk_pos) = self.update_queue.pop_front() {
-                if let Some(chunk) = self.chunks.get(&chunk_pos) {
-                    let adjacent_chunks = self.get_adjacent_chunks(chunk_pos);
-                    let _ =  self.mesh_sender.send(MeshGenerationTask {
-                        chunk_pos,
-                        chunk: Arc::new(Mutex::new(chunk.clone())),
-                        neighbors: [
-                            adjacent_chunks.north.map(|c| Arc::new(Mutex::new(c.clone()))),
-                            adjacent_chunks.south.map(|c| Arc::new(Mutex::new(c.clone()))),
-                            adjacent_chunks.east.map(|c| Arc::new(Mutex::new(c.clone()))),
-                            adjacent_chunks.west.map(|c| Arc::new(Mutex::new(c.clone()))),
-                            adjacent_chunks.up.map(|c| Arc::new(Mutex::new(c.clone()))),
-                            adjacent_chunks.down.map(|c| Arc::new(Mutex::new(c.clone()))),
-                        ],
-                    });
-                    // let block_registry_lock = self.block_registry.lock().unwrap();
-                    // let (vertices, indices, atlas) = generate_mesh_data(
-                    //     chunk,
-                    //     &self.device,
-                    //     &self.queue,
-                    //     Some(&adjacent_chunks),
-                    //     &block_registry_lock,
-                    //     &texture_atlas_bind_group_layout,
-                    // );
-                    // drop(block_registry_lock);
-                    // if vertices.is_empty() {
-                    //     self.mesh_manager.remove_mesh(&chunk_pos);
-                    // } else {
-                    //     self.mesh_manager
-                    //         .update_mesh(chunk_pos, &vertices, &indices, &atlas);
-                    // }
-                }
-            } else {
-                break;
+        profiler.end_scope("Mesh Receiver");
+        profiler.begin_scope("Mesh Sender");
+        if let Some(chunk_pos) = self.update_queue.pop_front() {
+            if let Some(chunk) = self.chunks.get(&chunk_pos) {
+                let adjacent_chunks = self.get_adjacent_chunks(chunk_pos);
+                let _ =  self.mesh_sender.send(MeshGenerationTask {
+                    chunk_pos,
+                    chunk: Arc::new(Mutex::new(chunk.clone())),
+                    neighbors: [
+                        adjacent_chunks.north.map(|c| Arc::new(Mutex::new(c.clone()))),
+                        adjacent_chunks.south.map(|c| Arc::new(Mutex::new(c.clone()))),
+                        adjacent_chunks.east.map(|c| Arc::new(Mutex::new(c.clone()))),
+                        adjacent_chunks.west.map(|c| Arc::new(Mutex::new(c.clone()))),
+                        adjacent_chunks.up.map(|c| Arc::new(Mutex::new(c.clone()))),
+                        adjacent_chunks.down.map(|c| Arc::new(Mutex::new(c.clone()))),
+                    ],
+                });
             }
         }
+        profiler.end_scope("Mesh Sender");
     }
 
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera: &mut Camera) {
         for (chunk_pos, (buffers, index_count, atlas)) in &self.mesh_manager.active_meshes {
-            // Skip chunks outside view frustum
-            // if !view_frustum.contains_chunk(*chunk_pos) {
-            //     continue;
-            // }
             let chunk_bbox = BoundingBox::from_chunk_position(*chunk_pos);
             if !camera.is_in_frustum(&chunk_bbox) {
                 continue;

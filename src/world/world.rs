@@ -8,7 +8,7 @@ use glam::IVec3;
 use wgpu::{naga::Block, BindGroupLayout, Device, Queue};
 
 use crate::{
-    render::camera::Camera,
+    render::{camera::Camera, profiler::{ProfileScope, Profiler}},
     world::{
         block::BlockType,
         chunk::{Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z},
@@ -76,8 +76,8 @@ impl World {
         self.chunk_manager.render(render_pass, camera);
     }
 
-    pub fn process_mesh_updates(&mut self) {
-        self.chunk_manager.process_mesh_updates();
+    pub fn process_mesh_updates(&mut self, profiler: &mut Profiler) {
+        self.chunk_manager.process_mesh_updates(profiler);
     }
 
     pub fn create_initial_chunks(&mut self, size: i32) {

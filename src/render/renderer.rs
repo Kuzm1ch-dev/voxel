@@ -520,6 +520,7 @@ impl<'window> Renderer<'window> {
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         //self.device.poll(wgpu::Maintain::Wait);
         self.profiler.start_frame();
+        self.profiler.begin_scope("Start Frame");
         let delta_time = self.start_time.elapsed().as_secs_f32() - self.running_time;
         self.running_time += delta_time;
         self.update(delta_time);
@@ -533,12 +534,15 @@ impl<'window> Renderer<'window> {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        self.world.process_mesh_updates();
+        self.profiler.end_scope("Start Frame");
+        self.world.process_mesh_updates(&mut self.profiler);
         self.shadow_render_pass(&mut encoder);
         //self.compute_render_pass(&mut encoder);
         self.main_render_pass(&mut encoder, &texture_view);
+        self.profiler.begin_scope("End Frame");
         self.queue.submit(std::iter::once(encoder.finish()));
         surface_texture.present();
+        self.profiler.end_scope("End Frame");
         self.profiler.end_frame();
         Ok(())
     }
