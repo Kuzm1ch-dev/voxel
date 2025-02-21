@@ -418,7 +418,7 @@ impl<'window> Renderer<'window> {
 
         let mut world = World::new(arc_device.clone(), arc_queue.clone());
         world.register_blocks(&arc_device, &arc_queue);
-        world.create_initial_chunks(1);
+        world.create_initial_chunks(6);
         let model: glam::Mat4 = glam::Mat4::from_rotation_x(camera_controller.rotation_x)
             * glam::Mat4::from_rotation_y(camera_controller.rotation_y)
             * glam::Mat4::from_rotation_z(camera_controller.rotation_z);
