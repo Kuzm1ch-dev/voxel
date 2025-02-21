@@ -79,9 +79,9 @@ impl Chunk {
 
     pub fn get_chunk_position(pos: IVec3) -> IVec3 {
         IVec3::new(
-            (pos.x / CHUNK_SIZE_X as i32) as i32,
-            (pos.y / CHUNK_SIZE_Y as i32) as i32,
-            (pos.z / CHUNK_SIZE_Z as i32) as i32,
+            pos.x.div_euclid(CHUNK_SIZE_X as i32),
+            pos.y.div_euclid(CHUNK_SIZE_Y as i32),
+            pos.z.div_euclid(CHUNK_SIZE_Z as i32),
         )
     }
 
@@ -235,7 +235,7 @@ impl Chunk {
                     Direction::West => block.textures.left.clone(),
                 };
                 let mut occulusion_vertex_map: HashMap<usize, f32> = HashMap::new();
-                let occulusion_factor = 0.5;
+                let occulusion_factor = 0.35;
                 let occulusion_default = 1.0;
                 match direction {
                     Direction::Up => {
@@ -688,6 +688,18 @@ impl ChunkManager {
             Some(Mutex::new(chunk))
         } else {
             None
+        }
+    }
+
+    pub fn update_chunk_by_pos(&mut self, position: IVec3) {
+        // Queue mesh updates
+        self.update_queue.push_back(position);
+
+        // Queue adjacent chunks for update
+        for adj_pos in self.get_adjacent_chunk_positions(position) {
+            if self.chunks.contains_key(&adj_pos) {
+                self.update_queue.push_back(adj_pos);
+            }
         }
     }
 

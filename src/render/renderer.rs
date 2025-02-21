@@ -15,7 +15,7 @@ use crate::img_utils::RgbaImg;
 use crate::model::vertex::Vertex;
 use crate::world::block::BlockTextures;
 use crate::world::block_registry::BlockRegistry;
-use crate::world::chunk::ChunkManager;
+use crate::world::chunk::{Chunk, ChunkManager};
 use crate::world::world::World;
 use wgpu::{
     BufferDescriptor, CommandEncoder, InstanceFlags, SamplerDescriptor, ShaderSource,
@@ -645,22 +645,33 @@ impl<'window> Renderer<'window> {
             MouseButton::Left => {
                 if state == ElementState::Pressed {
                     let direction = (self.camera.target - self.camera.eye).normalize();
-                    println!("eye {}", self.camera.eye);
-                    println!("target {}", self.camera.target);
-                    println!("direction {}", direction);
-                    if let Some((pos, block)) = self
+                    if let Some((_, block_pos, chunk_pos,_, block)) = self
                         .world
                         .ray_cast(self.camera.target, direction, 25.0)
                     {
-
-                        println!("Raycast hit at {:?} block: {:?}", pos, block);
+                        self.world.break_block_in_chunk(block_pos, chunk_pos);
                     }
-                    //  }else{
-                    //     println!("Raycast missed");
-                    //  }
                 }
             }
-            MouseButton::Right => if state == ElementState::Pressed {},
+            MouseButton::Right =>{
+                if state == ElementState::Pressed {
+                    let direction = (self.camera.target - self.camera.eye).normalize();
+                    if let Some((block_pos_w, _, _, normal, _)) = self
+                        .world
+                        .ray_cast(self.camera.target, direction, 25.0)
+                    {
+                        let block_registry_lock = self.world.block_registry.lock().unwrap();
+                        if let Some(block) = block_registry_lock.get_block("dirt"){
+                            drop(block_registry_lock);
+                            let reverse_normal = normal * -1;
+                            let new_block_pos = block_pos_w + reverse_normal;
+                            let chunk_pos = Chunk::get_chunk_position(new_block_pos);
+                            let new_block_pos_in_chunk = Chunk::get_block_position(new_block_pos);
+                            self.world.place_block_in_chunk(new_block_pos_in_chunk, chunk_pos, block);
+                        } 
+                    }
+                }
+            },
             _ => {}
         }
     }

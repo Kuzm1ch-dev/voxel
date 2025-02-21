@@ -1,14 +1,28 @@
-use std::{array, path::Path, sync::{Arc, Mutex}};
+use std::{
+    array,
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 use glam::IVec3;
 use wgpu::{naga::Block, BindGroupLayout, Device, Queue};
 
-use crate::{render::camera::Camera, world::{block::BlockType, chunk::{Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z}}};
+use crate::{
+    render::camera::Camera,
+    world::{
+        block::BlockType,
+        chunk::{Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z},
+    },
+};
 
-use super::{block::BlockTextures, block_registry::{self, BlockRegistry}, chunk::{self, ChunkManager}};
+use super::{
+    block::BlockTextures,
+    block_registry::{self, BlockRegistry},
+    chunk::{self, ChunkManager},
+};
 
 pub struct World {
-    block_registry: Arc<Mutex<BlockRegistry>>,
+    pub block_registry: Arc<Mutex<BlockRegistry>>,
     chunk_manager: ChunkManager,
 }
 
@@ -22,7 +36,7 @@ impl World {
         }
     }
 
-    pub fn register_blocks(&mut self, device: &Device, queue: &Queue){
+    pub fn register_blocks(&mut self, device: &Device, queue: &Queue) {
         let mut block_registry_lock = self.block_registry.lock().unwrap();
         let _ = block_registry_lock.register_block(
             &device,
@@ -76,45 +90,93 @@ impl World {
         }
     }
 
-    pub fn remove_block(&mut self, block_pos: IVec3){
+    pub fn remove_block(&mut self, block_pos: IVec3) {
         let chunk_pos = Chunk::get_chunk_position(block_pos);
         let block_pos = Chunk::get_block_position(block_pos);
         let chunk = self.chunk_manager.get_chunk(chunk_pos);
         if let Some(chunk) = chunk {
             let mut chunk_lock = chunk.lock().unwrap();
-            chunk_lock.set_block(block_pos.x as usize, block_pos.y as usize, block_pos.z as usize, None);
+            chunk_lock.set_block(
+                block_pos.x as usize,
+                block_pos.y as usize,
+                block_pos.z as usize,
+                None,
+            );
         }
+        self.chunk_manager.update_chunk_by_pos(chunk_pos);
     }
 
-    pub fn ray_cast(&mut self, from: glam::Vec3, direction: glam::Vec3, distance: f32) -> Option<(IVec3, BlockType)> {
+    pub fn break_block_in_chunk(&mut self, block_pos: IVec3, chunk_pos: IVec3) {
+        let chunk = self.chunk_manager.get_chunk(chunk_pos);
+        if let Some(chunk) = chunk {
+            let mut chunk_lock = chunk.lock().unwrap();
+            chunk_lock.set_block(
+                block_pos.x as usize,
+                block_pos.y as usize,
+                block_pos.z as usize,
+                None,
+            );
+        }
+        self.chunk_manager.update_chunk_by_pos(chunk_pos);
+    }
+
+    pub fn place_block_in_chunk(&mut self, block_pos: IVec3, chunk_pos: IVec3, block_type: BlockType) {
+        let chunk = self.chunk_manager.get_chunk(chunk_pos);
+        if let Some(chunk) = chunk {
+            let mut chunk_lock = chunk.lock().unwrap();
+            chunk_lock.set_block(
+                block_pos.x as usize,
+                block_pos.y as usize,
+                block_pos.z as usize,
+                Some(block_type),
+            );
+        }
+        self.chunk_manager.update_chunk_by_pos(chunk_pos);
+    }
+
+    pub fn ray_cast(
+        &mut self,
+        from: glam::Vec3,
+        direction: glam::Vec3,
+        distance: f32,
+    ) -> Option<(IVec3,IVec3, IVec3, IVec3, BlockType)> {
+        let mut last_pos = from;
         let mut current_pos = from;
         let target = from + direction * distance;
         while current_pos.distance(target) > 0.05 {
             let block_pos_w = current_pos.floor().as_ivec3();
             let block_pos = Chunk::get_block_position(block_pos_w);
-            let chunk_pos = Chunk::get_chunk_position(block_pos);
+            let chunk_pos = Chunk::get_chunk_position(block_pos_w);
             let chunk = self.chunk_manager.get_chunk(chunk_pos);
             if let Some(chunk) = chunk {
                 let chunk_lock = chunk.lock().unwrap();
-                let block = chunk_lock.get_block(block_pos.x as usize, block_pos.y as usize, block_pos.z as usize);
+                let block = chunk_lock.get_block(
+                    block_pos.x as usize,
+                    block_pos.y as usize,
+                    block_pos.z as usize,
+                );
+
+                let diff = current_pos - last_pos;
+                let normal = if diff.x.abs() > diff.y.abs() && diff.x.abs() > diff.z.abs() {
+                    IVec3::new(diff.x.signum() as i32, 0, 0)
+                } else if diff.y.abs() > diff.x.abs() && diff.y.abs() > diff.z.abs() {
+                    IVec3::new(0, diff.y.signum() as i32, 0)  
+                } else {
+                    IVec3::new(0, 0, diff.z.signum() as i32)
+                }; 
+
                 if let Some(block) = block {
-                    return Some((block_pos, block.clone()));
+                    return Some((block_pos_w, block_pos, chunk_pos, normal,block.clone()));
                 }
             }
+            last_pos = current_pos;
             current_pos += direction * 0.01;
         }
         None
     }
 
-    fn generate_test_chunk(
-        &mut self,
-        chunk_x: i32,
-        chunk_z: i32,
-    ) -> Vec<Option<BlockType>> {
-        let mut blocks = vec![
-            None;
-            CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z
-        ];
+    fn generate_test_chunk(&mut self, chunk_x: i32, chunk_z: i32) -> Vec<Option<BlockType>> {
+        let mut blocks = vec![None; CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z];
         // Generate some test terrain
         for x in 0..CHUNK_SIZE_X {
             for z in 0..CHUNK_SIZE_Z {
