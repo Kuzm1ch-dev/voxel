@@ -1,12 +1,12 @@
 use glam::IVec3;
-use tokio::sync::RwLock;
-use wgpu::naga::Block;
 use std::array;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
+use tokio::sync::RwLock;
+use wgpu::naga::Block;
 use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 use winit::window::Window;
@@ -47,20 +47,29 @@ struct AdjacentChunks<'a> {
     down: Option<&'a Chunk>,
 }
 
+impl<'a> AdjacentChunks<'a> {
+    pub fn to_vec(&self) -> Vec<Option<&Chunk>> {
+        vec![
+            self.north,
+            self.south,
+            self.east,
+            self.west,
+            self.up,
+            self.down,
+        ]
+    }
+}
 
 #[derive(Debug)]
 pub struct Chunk {
     position: IVec3, // Chunk position in world space
     blocks: Vec<Option<BlockType>>,
-    needs_mesh_update: bool
+    needs_mesh_update: bool,
 }
 
 impl Chunk {
     pub fn new(position: IVec3) -> Self {
-        let blocks = vec![
-            None;
-            CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z
-        ];
+        let blocks = vec![None; CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z];
         Self {
             position,
             blocks: blocks,
@@ -97,7 +106,7 @@ impl Chunk {
         indices: &mut Vec<u16>,
         adjacent_chunks: Option<&AdjacentChunks>,
         block_registry: &BlockRegistry,
-        atlas: &ChunkTextureAtlas
+        atlas: &ChunkTextureAtlas,
     ) {
         //let block_type = self.blocks[x][y][z].clone();
         let base_index = vertices.len() as u16;
@@ -168,7 +177,7 @@ impl Chunk {
                 Direction::West,
                 [-1.0, 0.0, 0.0],
                 [
-                    (0.0, 1.0, 0.0),    // Reorder west face
+                    (0.0, 1.0, 0.0), // Reorder west face
                     (0.0, 1.0, 1.0),
                     (0.0, 0.0, 1.0),
                     (0.0, 0.0, 0.0),
@@ -179,25 +188,150 @@ impl Chunk {
 
         for (direction, normal, positions, uvs) in FACES {
             let (check_x, check_y, check_z) = match direction {
-                Direction::Up    => (check_pos.0, check_pos.1 + 1, check_pos.2),
-                Direction::Down  => (check_pos.0, check_pos.1 - 1, check_pos.2),
+                Direction::Up => (check_pos.0, check_pos.1 + 1, check_pos.2),
+                Direction::Down => (check_pos.0, check_pos.1 - 1, check_pos.2),
                 Direction::South => (check_pos.0, check_pos.1, check_pos.2 + 1),
                 Direction::North => (check_pos.0, check_pos.1, check_pos.2 - 1),
-                Direction::East  => (check_pos.0 + 1, check_pos.1, check_pos.2),
-                Direction::West  => (check_pos.0 - 1, check_pos.1, check_pos.2),
+                Direction::East => (check_pos.0 + 1, check_pos.1, check_pos.2),
+                Direction::West => (check_pos.0 - 1, check_pos.1, check_pos.2),
             };
-    
+
             if self.should_render_face(check_x, check_y, check_z, adjacent_chunks, direction) {
                 let base_index = vertices.len() as u16;
                 let face_texture = match direction {
                     Direction::Up => block.textures.top.clone(),
                     Direction::Down => block.textures.bottom.clone(),
-                    Direction::South => block.textures.back.clone(), 
-                    Direction::North => block.textures.front.clone(), 
-                    Direction::East => block.textures.right.clone(), 
-                    Direction::West => block.textures.left.clone(), 
+                    Direction::South => block.textures.back.clone(),
+                    Direction::North => block.textures.front.clone(),
+                    Direction::East => block.textures.right.clone(),
+                    Direction::West => block.textures.left.clone(),
                 };
+                let mut occulusion_vertex_map: HashMap<usize, f32> = HashMap::new();
+                let occulusion_factor = 0.25;
+                let occulusion_default = 1.0;
+                match direction {
+                    Direction::Up => {
+                        if self.exist_block(x as i32, y as i32 +1, z as i32 - 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(0, occulusion_vertex_map.get(&0).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(1, occulusion_vertex_map.get(&1).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32, y as i32 +1, z as i32 + 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(2, occulusion_vertex_map.get(&2).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(3, occulusion_vertex_map.get(&3).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32 - 1, y as i32 +1, z as i32, adjacent_chunks){
+                            occulusion_vertex_map.insert(0, occulusion_vertex_map.get(&0).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(3, occulusion_vertex_map.get(&3).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32 + 1, y as i32 +1, z as i32, adjacent_chunks){
+                            occulusion_vertex_map.insert(1, occulusion_vertex_map.get(&1).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(2, occulusion_vertex_map.get(&2).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                    }
+                    Direction::Down => {
+                        if self.exist_block(x as i32, y as i32 -1, z as i32 - 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(0, occulusion_vertex_map.get(&0).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(1, occulusion_vertex_map.get(&1).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32, y as i32 -1, z as i32 + 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(2, occulusion_vertex_map.get(&2).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(3, occulusion_vertex_map.get(&3).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32 - 1, y as i32 -1, z as i32, adjacent_chunks){
+                            occulusion_vertex_map.insert(0, occulusion_vertex_map.get(&0).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(3, occulusion_vertex_map.get(&3).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32 + 1, y as i32 -1, z as i32, adjacent_chunks){
+                            occulusion_vertex_map.insert(1, occulusion_vertex_map.get(&1).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(2, occulusion_vertex_map.get(&2).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                    }
+                    Direction::South => {
+                        if self.exist_block(x as i32, y as i32, z as i32 + 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(0, occulusion_vertex_map.get(&0).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(1, occulusion_vertex_map.get(&1).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32, y as i32 -1, z as i32 + 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(2, occulusion_vertex_map.get(&2).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(3, occulusion_vertex_map.get(&3).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32 - 1, y as i32, z as i32 + 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(0, occulusion_vertex_map.get(&0).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(3, occulusion_vertex_map.get(&3).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32 + 1, y as i32, z as i32 + 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(1, occulusion_vertex_map.get(&1).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(2, occulusion_vertex_map.get(&2).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                    }
+                    Direction::North => {
+                        if self.exist_block(x as i32, y as i32, z as i32 - 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(0, occulusion_vertex_map.get(&0).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(1, occulusion_vertex_map.get(&1).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32, y as i32 -1, z as i32 - 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(2, occulusion_vertex_map.get(&2).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(3, occulusion_vertex_map.get(&3).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32 - 1, y as i32, z as i32 - 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(2, occulusion_vertex_map.get(&2).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(1, occulusion_vertex_map.get(&1).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32 + 1, y as i32, z as i32 - 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(0, occulusion_vertex_map.get(&0).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(3, occulusion_vertex_map.get(&3).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                    }
+                    Direction::East => {
+                        if self.exist_block(x as i32 + 1, y as i32, z as i32, adjacent_chunks){
+                            occulusion_vertex_map.insert(0, occulusion_vertex_map.get(&0).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(1, occulusion_vertex_map.get(&1).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32 + 1, y as i32 -1, z as i32, adjacent_chunks){
+                            occulusion_vertex_map.insert(2, occulusion_vertex_map.get(&2).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(3, occulusion_vertex_map.get(&3).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32 + 1, y as i32, z as i32 - 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(1, occulusion_vertex_map.get(&1).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(2, occulusion_vertex_map.get(&2).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32 + 1, y as i32, z as i32 + 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(0, occulusion_vertex_map.get(&0).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(3, occulusion_vertex_map.get(&3).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                    }
+                    Direction::West => {
+                        if self.exist_block(x as i32 - 1, y as i32, z as i32, adjacent_chunks){
+                            occulusion_vertex_map.insert(0, occulusion_vertex_map.get(&0).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(1, occulusion_vertex_map.get(&1).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32 - 1, y as i32 -1, z as i32, adjacent_chunks){
+                            occulusion_vertex_map.insert(2, occulusion_vertex_map.get(&2).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(3, occulusion_vertex_map.get(&3).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32 - 1, y as i32, z as i32 - 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(0, occulusion_vertex_map.get(&0).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(3, occulusion_vertex_map.get(&3).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                        if self.exist_block(x as i32 - 1, y as i32, z as i32 + 1, adjacent_chunks){
+                            occulusion_vertex_map.insert(1, occulusion_vertex_map.get(&1).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                            occulusion_vertex_map.insert(2, occulusion_vertex_map.get(&2).unwrap_or(&occulusion_default).clone() - occulusion_factor);
+                        }
+                    }
+                    _ => {
+                        occulusion_vertex_map.insert(0, 1.0);
+                        occulusion_vertex_map.insert(1, 1.0);
+                        occulusion_vertex_map.insert(2, 1.0);
+                        occulusion_vertex_map.insert(3, 1.0);
+                    }
+                }
                 for i in 0..4 {
+                    /*
+                    0---1
+                    |   |
+                    3---2
+                    */
+                    let occulusion = occulusion_vertex_map.get(&i).unwrap_or(&1.0);
                     vertices.push(Vertex::new(
                         [
                             world_x as f32 + positions[i].0,
@@ -206,10 +340,11 @@ impl Chunk {
                         ],
                         normal,
                         [uvs[i].0, uvs[i].1],
-                        atlas.get_texture_index(face_texture.as_str()).unwrap()
+                        atlas.get_texture_index(face_texture.as_str()).unwrap(),
+                        occulusion.clone(),
                     ));
                 }
-                
+
                 // Add indices for this face
                 indices.extend_from_slice(&[
                     base_index,
@@ -220,6 +355,59 @@ impl Chunk {
                     base_index,
                 ]);
             }
+        }
+    }
+
+    fn exist_block(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+        adjacent_chunks: Option<&AdjacentChunks>,
+    ) -> bool {
+        if x >= 0
+            && x < CHUNK_SIZE_X as i32
+            && y >= 0
+            && y < CHUNK_SIZE_Y as i32
+            && z >= 0
+            && z < CHUNK_SIZE_Z as i32
+        {
+            return self.get_block(x as usize, y as usize, z as usize) != None;
+        }
+        if let Some(adjacent_chunks) = adjacent_chunks {
+            if z < 0 {
+                if let Some(chunk) = adjacent_chunks.north {
+                    return chunk.exist_block(x, y, CHUNK_SIZE_Z as i32 - 1, None);
+                }
+            }
+            if z >= CHUNK_SIZE_Z as i32 {
+                if let Some(chunk) = adjacent_chunks.south {
+                    return chunk.exist_block(x, y, 0, None);
+                }
+            }
+            if x >= CHUNK_SIZE_X as i32 {
+                if let Some(chunk) = adjacent_chunks.east {
+                    return chunk.exist_block(0, y, z, None);
+                }
+            }
+            if x < 0 {
+                if let Some(chunk) = adjacent_chunks.west {
+                    return chunk.exist_block(CHUNK_SIZE_X as i32 - 1, y, z, None);
+                }
+            }
+            if y >= CHUNK_SIZE_Y as i32 {
+                if let Some(chunk) = adjacent_chunks.up {
+                    return chunk.exist_block(x, 0, z, None);
+                }
+            }
+            if y < 0 {
+                if let Some(chunk) = adjacent_chunks.down {
+                    return chunk.exist_block(x, CHUNK_SIZE_Y as i32 - 1, z, None);
+                }
+            }
+            return false;
+        }else{
+            false
         }
     }
 
@@ -290,13 +478,12 @@ impl Chunk {
                 _ => return false,
             };
 
-            chunk.get_block(new_x, new_y, new_z)== None
+            chunk.get_block(new_x, new_y, new_z) == None
         } else {
             // If no adjacent chunks are provided, render the face
             true
         }
     }
-
     // Generate mesh data for the chunk
     fn generate_mesh_data(
         &self,
@@ -304,18 +491,33 @@ impl Chunk {
         queue: &wgpu::Queue,
         adjacent_chunks: Option<&AdjacentChunks>,
         block_registry: &BlockRegistry,
-        texture_atlas_bind_group_layout: &BindGroupLayout
+        texture_atlas_bind_group_layout: &BindGroupLayout,
     ) -> (Vec<Vertex>, Vec<u16>, ChunkTextureAtlas) {
         let mut vertices = Vec::new();
         let mut indices: Vec<u16> = Vec::new();
-        let atlas = ChunkTextureAtlas::new(device, queue, self, block_registry, texture_atlas_bind_group_layout);
+        let atlas = ChunkTextureAtlas::new(
+            device,
+            queue,
+            self,
+            block_registry,
+            texture_atlas_bind_group_layout,
+        );
         for x in 0..CHUNK_SIZE_X {
             for y in 0..CHUNK_SIZE_Y {
                 for z in 0..CHUNK_SIZE_Z {
                     if self.get_block(x, y, z) == None {
                         continue;
                     }
-                    self.add_block_faces(x, y, z, &mut vertices, &mut indices, adjacent_chunks, block_registry, &atlas);
+                    self.add_block_faces(
+                        x,
+                        y,
+                        z,
+                        &mut vertices,
+                        &mut indices,
+                        adjacent_chunks,
+                        block_registry,
+                        &atlas,
+                    );
                 }
             }
         }
@@ -398,8 +600,15 @@ impl ChunkMeshManager {
         }
     }
 
-    fn update_mesh(&mut self, chunk_pos: IVec3, vertices: &[Vertex], indices: &[u16], atlas: &ChunkTextureAtlas) {
-        let buffers = if let Some((existing_buffers, _, _)) = self.active_meshes.remove(&chunk_pos) {
+    fn update_mesh(
+        &mut self,
+        chunk_pos: IVec3,
+        vertices: &[Vertex],
+        indices: &[u16],
+        atlas: &ChunkTextureAtlas,
+    ) {
+        let buffers = if let Some((existing_buffers, _, _)) = self.active_meshes.remove(&chunk_pos)
+        {
             existing_buffers
         } else {
             self.mesh_pool.acquire_buffers()
@@ -427,26 +636,26 @@ pub struct ChunkManager {
     update_queue: VecDeque<IVec3>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
-    block_registry: Arc<Mutex<BlockRegistry>>
+    block_registry: Arc<Mutex<BlockRegistry>>,
 }
 
 impl ChunkManager {
-    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>, block_registry: Arc<Mutex<BlockRegistry>>) -> Self {
+    pub fn new(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        block_registry: Arc<Mutex<BlockRegistry>>,
+    ) -> Self {
         Self {
             chunks: HashMap::new(),
             mesh_manager: ChunkMeshManager::new(device.clone(), queue.clone()),
             update_queue: VecDeque::new(),
             device,
             queue,
-            block_registry
+            block_registry,
         }
     }
 
-    pub fn update_chunk(
-        &mut self,
-        position: IVec3,
-        blocks: Vec<Option<BlockType>>,
-    ) {
+    pub fn update_chunk(&mut self, position: IVec3, blocks: Vec<Option<BlockType>>) {
         // Update chunk data
         if let Some(chunk) = self.chunks.get_mut(&position) {
             chunk.blocks = blocks;
@@ -471,33 +680,41 @@ impl ChunkManager {
     pub fn process_mesh_updates(&mut self) {
         // Process a limited number of updates per frame
         const UPDATES_PER_FRAME: usize = 4;
-        let texture_atlas_bind_group_layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Chunk Texture Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2Array,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+        let texture_atlas_bind_group_layout =
+            self.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Chunk Texture Bind Group Layout"),
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2Array,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                    ],
+                });
         for _ in 0..UPDATES_PER_FRAME {
             if let Some(chunk_pos) = self.update_queue.pop_front() {
                 if let Some(chunk) = self.chunks.get(&chunk_pos) {
                     let adjacent_chunks = self.get_adjacent_chunks(chunk_pos);
                     let block_registry_lock = self.block_registry.lock().unwrap();
-                    let (vertices, indices, atlas) = chunk.generate_mesh_data(&self.device, &self.queue, Some(&adjacent_chunks), &block_registry_lock, &texture_atlas_bind_group_layout);
+                    let (vertices, indices, atlas) = chunk.generate_mesh_data(
+                        &self.device,
+                        &self.queue,
+                        Some(&adjacent_chunks),
+                        &block_registry_lock,
+                        &texture_atlas_bind_group_layout,
+                    );
                     drop(block_registry_lock);
                     if vertices.is_empty() {
                         self.mesh_manager.remove_mesh(&chunk_pos);
@@ -512,14 +729,14 @@ impl ChunkManager {
         }
     }
 
-    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera:&mut Camera) {
+    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera: &mut Camera) {
         for (chunk_pos, (buffers, index_count, atlas)) in &self.mesh_manager.active_meshes {
             // Skip chunks outside view frustum
             // if !view_frustum.contains_chunk(*chunk_pos) {
             //     continue;
             // }
             let chunk_bbox = BoundingBox::from_chunk_position(*chunk_pos);
-            if !camera.is_in_frustum(&chunk_bbox){
+            if !camera.is_in_frustum(&chunk_bbox) {
                 continue;
             }
             //render_pass.set_bind_group(4, &atlas.bind_group, &[]);

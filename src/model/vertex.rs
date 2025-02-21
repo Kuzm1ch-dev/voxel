@@ -7,6 +7,7 @@ pub struct Vertex {
     normal: [f32; 3],
     uv: [f32; 2],
     tex_index: u32,
+    occulusion: f32
 }
 
 impl Vertex {
@@ -37,17 +38,23 @@ impl Vertex {
                     offset: std::mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
                     shader_location: 3,
                     format: wgpu::VertexFormat::Uint32,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 9]>() as wgpu::BufferAddress,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Float32,
                 }
             ],
         }
     }
 
-    pub fn new(position: [f32; 3], normal: [f32; 3], uv: [f32; 2], tex_index: u32) -> Self {
+    pub fn new(position: [f32; 3], normal: [f32; 3], uv: [f32; 2], tex_index: u32,occulusion:f32) -> Self {
         Self {
             position,
             normal,
             uv,
             tex_index,
+            occulusion
         }
     }
 }

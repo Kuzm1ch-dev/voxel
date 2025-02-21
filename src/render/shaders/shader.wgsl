@@ -24,6 +24,7 @@ struct VertexInput {
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(3) tex_index: u32,
+    @location(4) occulusion: f32,
 }
 
 struct VertexOutput {
@@ -33,6 +34,7 @@ struct VertexOutput {
     @location(2) uv: vec2<f32>,
     @location(3) shadow_coords: vec3<f32>,
     @location(4) tex_index: u32,  // Pass texture index to fragment shader
+    @location(5) occulusion: f32,
 }
 
 @vertex
@@ -49,7 +51,7 @@ fn vs_main(model: VertexInput) -> VertexOutput {
     out.world_normal = (model_matrix * vec4<f32>(model.normal, 0.0)).xyz;
     out.uv = model.uv;
     out.tex_index = model.tex_index;
-
+    out.occulusion = model.occulusion;
     // Calculate shadow coordinates
     let shadow_pos = light.view_proj * vec4<f32>(world_position, 1.0);
     out.shadow_coords = vec3<f32>(
@@ -104,6 +106,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Combine lighting with shadows
     let lighting = ambient + diffuse * shadow;
-    let final_color = base_color * lighting + rim_light;
+    let final_color = base_color * lighting * in.occulusion + rim_light;
     return vec4<f32>(final_color, 1.0);
 }
