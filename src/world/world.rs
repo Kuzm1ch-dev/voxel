@@ -5,7 +5,7 @@ use wgpu::{naga::Block, BindGroupLayout, Device, Queue};
 
 use crate::{render::camera::Camera, world::{block::BlockType, chunk::{Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z}}};
 
-use super::{block::BlockTextures, block_registry::{self, BlockRegistry}, chunk::ChunkManager};
+use super::{block::BlockTextures, block_registry::{self, BlockRegistry}, chunk::{self, ChunkManager}};
 
 pub struct World {
     block_registry: Arc<Mutex<BlockRegistry>>,
@@ -74,6 +74,36 @@ impl World {
                 self.chunk_manager.update_chunk(chunk_pos, blocks);
             }
         }
+    }
+
+    pub fn remove_block(&mut self, block_pos: IVec3){
+        let chunk_pos = Chunk::get_chunk_position(block_pos);
+        let block_pos = Chunk::get_block_position(block_pos);
+        let chunk = self.chunk_manager.get_chunk(chunk_pos);
+        if let Some(chunk) = chunk {
+            let mut chunk_lock = chunk.lock().unwrap();
+            chunk_lock.set_block(block_pos.x as usize, block_pos.y as usize, block_pos.z as usize, None);
+        }
+    }
+
+    pub fn ray_cast(&mut self, from: glam::Vec3, direction: glam::Vec3, distance: f32) -> Option<(IVec3, BlockType)> {
+        let mut current_pos = from;
+        let target = from + direction * distance;
+        while current_pos.distance(target) > 0.05 {
+            let block_pos_w = current_pos.floor().as_ivec3();
+            let block_pos = Chunk::get_block_position(block_pos_w);
+            let chunk_pos = Chunk::get_chunk_position(block_pos);
+            let chunk = self.chunk_manager.get_chunk(chunk_pos);
+            if let Some(chunk) = chunk {
+                let chunk_lock = chunk.lock().unwrap();
+                let block = chunk_lock.get_block(block_pos.x as usize, block_pos.y as usize, block_pos.z as usize);
+                if let Some(block) = block {
+                    return Some((block_pos, block.clone()));
+                }
+            }
+            current_pos += direction * 0.01;
+        }
+        None
     }
 
     fn generate_test_chunk(

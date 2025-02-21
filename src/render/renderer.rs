@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use wgpu::core::device::queue;
 use wgpu::util::DeviceExt;
-use winit::event::{DeviceId, ElementState, KeyEvent};
+use winit::event::{DeviceId, ElementState, KeyEvent, MouseButton};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{CursorGrabMode, Window};
 
@@ -418,7 +418,7 @@ impl<'window> Renderer<'window> {
 
         let mut world = World::new(arc_device.clone(), arc_queue.clone());
         world.register_blocks(&arc_device, &arc_queue);
-        world.create_initial_chunks(6);
+        world.create_initial_chunks(1);
         let model: glam::Mat4 = glam::Mat4::from_rotation_x(camera_controller.rotation_x)
             * glam::Mat4::from_rotation_y(camera_controller.rotation_y)
             * glam::Mat4::from_rotation_z(camera_controller.rotation_z);
@@ -431,7 +431,8 @@ impl<'window> Renderer<'window> {
 
         let start_time = Instant::now();
         let running_time = 0.0;
-        let profiler = Profiler::new();
+        let mut profiler = Profiler::new();
+        //profiler.toggle();
         Self {
             start_time,
             running_time,
@@ -621,7 +622,7 @@ impl<'window> Renderer<'window> {
         }
     }
 
-    pub fn process_mouse(&mut self, dx: f32, dy: f32) {
+    pub fn process_mouse_motion(&mut self, dx: f32, dy: f32) {
         const SENSITIVITY: f32 = 0.005;
 
         let forward = (self.camera.target - self.camera.eye).normalize();
@@ -637,6 +638,31 @@ impl<'window> Renderer<'window> {
         let forward = rotation * forward;
 
         self.camera.target = self.camera.eye + forward;
+    }
+
+    pub fn process_mouse_button(&mut self, button: MouseButton, state: ElementState) {
+        match button {
+            MouseButton::Left => {
+                if state == ElementState::Pressed {
+                    let direction = (self.camera.target - self.camera.eye).normalize();
+                    println!("eye {}", self.camera.eye);
+                    println!("target {}", self.camera.target);
+                    println!("direction {}", direction);
+                    if let Some((pos, block)) = self
+                        .world
+                        .ray_cast(self.camera.target, direction, 25.0)
+                    {
+
+                        println!("Raycast hit at {:?} block: {:?}", pos, block);
+                    }
+                    //  }else{
+                    //     println!("Raycast missed");
+                    //  }
+                }
+            }
+            MouseButton::Right => if state == ElementState::Pressed {},
+            _ => {}
+        }
     }
 }
 

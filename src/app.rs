@@ -57,6 +57,11 @@ impl<'window> ApplicationHandler for App<'window> {
                 }
                 self.window.as_ref().unwrap().request_redraw();
             }
+            WindowEvent::MouseInput { device_id, state, button } => {
+                if let Some(renderer) = self.renderer.as_mut() {
+                    renderer.process_mouse_button(button, state);
+                }
+            },
             WindowEvent::KeyboardInput {
                 device_id,
                 event,
@@ -79,9 +84,9 @@ impl<'window> ApplicationHandler for App<'window> {
         match event {
             DeviceEvent::MouseMotion { delta } => {
                 if let Some(renderer) = self.renderer.as_mut() {
-                    renderer.process_mouse(delta.0 as f32, delta.1 as f32);
+                    renderer.process_mouse_motion(delta.0 as f32, delta.1 as f32);
                 }
-            }
+            },
             _ => ()
         }
     }

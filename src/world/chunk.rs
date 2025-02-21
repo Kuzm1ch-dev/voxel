@@ -77,6 +77,23 @@ impl Chunk {
         }
     }
 
+    pub fn get_chunk_position(pos: IVec3) -> IVec3 {
+        IVec3::new(
+            (pos.x / CHUNK_SIZE_X as i32) as i32,
+            (pos.y / CHUNK_SIZE_Y as i32) as i32,
+            (pos.z / CHUNK_SIZE_Z as i32) as i32,
+        )
+    }
+
+    pub fn get_block_position(pos: IVec3) -> IVec3 {
+        IVec3::new(
+            pos.x.rem_euclid(CHUNK_SIZE_X as i32),
+            pos.y.rem_euclid(CHUNK_SIZE_Y as i32),
+            pos.z.rem_euclid(CHUNK_SIZE_Z as i32),
+        )
+    }
+
+    
     pub fn get_index(x: usize, y: usize, z: usize) -> usize {
         x * (CHUNK_SIZE_Y * CHUNK_SIZE_Z) + y * CHUNK_SIZE_Z + z
     }
@@ -87,6 +104,17 @@ impl Chunk {
         }
         let index = Self::get_index(x, y, z);
         self.blocks.get(index)?.as_ref()
+    }
+
+    pub fn get_blocks(&self) -> &Vec<Option<BlockType>> {
+        &self.blocks
+    }
+
+    pub fn get_block_by_world_pos(&self, world_pos: IVec3) -> Option<&BlockType> {
+        let x = world_pos.x.rem_euclid(CHUNK_SIZE_X as i32) as usize;
+        let y = world_pos.y.rem_euclid(CHUNK_SIZE_Y as i32) as usize;
+        let z = world_pos.z.rem_euclid(CHUNK_SIZE_Z as i32) as usize;
+        self.get_block(x, y, z)
     }
 
     pub fn set_block(&mut self, x: usize, y: usize, z: usize, block: Option<BlockType>) {
@@ -207,7 +235,7 @@ impl Chunk {
                     Direction::West => block.textures.left.clone(),
                 };
                 let mut occulusion_vertex_map: HashMap<usize, f32> = HashMap::new();
-                let occulusion_factor = 0.25;
+                let occulusion_factor = 0.5;
                 let occulusion_default = 1.0;
                 match direction {
                     Direction::Up => {
@@ -652,6 +680,14 @@ impl ChunkManager {
             device,
             queue,
             block_registry,
+        }
+    }
+
+    pub fn get_chunk(&mut self, position: IVec3) -> Option<Mutex<&mut Chunk>> {
+        if let Some(chunk) = self.chunks.get_mut(&position) {
+            Some(Mutex::new(chunk))
+        } else {
+            None
         }
     }
 

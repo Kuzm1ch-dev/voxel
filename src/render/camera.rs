@@ -66,9 +66,12 @@ impl Camera {
         }
     }
 
-    fn get_yaw(&self) -> f32 {
-        let forward = (self.target - self.eye).normalize();
-        forward.y.atan2(forward.x)
+    pub fn get_eye_ivec(&self) -> IVec3 {
+        IVec3::new(
+            self.eye.x as i32,
+            self.eye.y as i32,
+            self.eye.z as i32,
+        )
     }
 
     pub fn build_view_projection_matrix(&self) -> glam::Mat4 {

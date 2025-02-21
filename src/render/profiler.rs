@@ -7,6 +7,7 @@ pub struct Profiler {
     frame_start: Instant,
     print_interval: Duration,
     last_print: Instant,
+    enabled: bool,
 }
 
 impl Profiler {
@@ -17,9 +18,12 @@ impl Profiler {
             frame_start: Instant::now(),
             print_interval: Duration::from_secs(1),
             last_print: Instant::now(),
+            enabled: false
         }
     }
-
+    pub fn toggle(&mut self) {
+        self.enabled = !self.enabled;
+    }
     pub fn start_frame(&mut self) {
         self.frame_start = Instant::now();
     }
@@ -54,6 +58,7 @@ impl Profiler {
     }
 
     fn print_statistics(&self) {
+        if !self.enabled {return;}
         println!("\n=== Performance Profile ===");
         
         // Calculate and sort statistics
