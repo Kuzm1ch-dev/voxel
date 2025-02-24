@@ -4,6 +4,14 @@ pub struct BlockType {
     pub textures: BlockTextures,
 }
 
+impl BlockType {
+    pub fn new(id: String, textures: BlockTextures) -> Self {
+        BlockType {
+            id,
+            textures,
+        }
+    }
+}
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockTextures {
     pub top: String,    // texture name for top face

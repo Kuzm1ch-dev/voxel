@@ -1,10 +1,9 @@
 use std::{
-    array,
-    path::Path,
-    sync::{Arc, Mutex},
+    array, collections::HashSet, path::Path, sync::{Arc, Mutex}
 };
 
 use glam::IVec3;
+use noise::{NoiseFn, Perlin};
 use wgpu::{naga::Block, BindGroupLayout, Device, Queue};
 
 use crate::{
@@ -18,7 +17,7 @@ use crate::{
 use super::{
     block::BlockTextures,
     block_registry::{self, BlockRegistry},
-    chunk::{self, ChunkManager},
+    chunk::{self}, chunk_manager::ChunkManager,
 };
 
 pub struct World {
@@ -80,14 +79,8 @@ impl World {
         self.chunk_manager.process_mesh_updates(profiler);
     }
 
-    pub fn create_initial_chunks(&mut self, size: i32) {
-        for x in -size..=size {
-            for z in -size..=size {
-                let chunk_pos = IVec3::new(x, 0, z);
-                let blocks = self.generate_test_chunk(x, z);
-                self.chunk_manager.update_chunk(chunk_pos, blocks);
-            }
-        }
+    pub fn update_visible_chunks(&mut self, camera_position: IVec3){
+        self.chunk_manager.update_visible_chunks(camera_position);
     }
 
     pub fn remove_block(&mut self, block_pos: IVec3) {
@@ -173,36 +166,5 @@ impl World {
             current_pos += direction * 0.01;
         }
         None
-    }
-
-    fn generate_test_chunk(&mut self, chunk_x: i32, chunk_z: i32) -> Vec<Option<BlockType>> {
-        let mut blocks = vec![None; CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z];
-        // Generate some test terrain
-        for x in 0..CHUNK_SIZE_X {
-            for z in 0..CHUNK_SIZE_Z {
-                // Create a simple heightmap using sine waves
-                let world_x = (chunk_x * CHUNK_SIZE_X as i32 + x as i32) as f32;
-                let world_z = (chunk_z * CHUNK_SIZE_Z as i32 + z as i32) as f32;
-
-                let height =
-                    ((world_x * 0.1).sin() * 5.0 + (world_z * 0.1).cos() * 5.0 + 32.0) as usize;
-
-                // Fill blocks up to the height
-                for y in 0..height.min(CHUNK_SIZE_Y) {
-                    let index = Chunk::get_index(x, y, z);
-                    let block_registry_lock = self.block_registry.lock().unwrap();
-                    blocks[index] = if y == height - 1 {
-                        block_registry_lock.get_block("grass")
-                    } else if y > height - 4 {
-                        block_registry_lock.get_block("dirt")
-                    } else {
-                        block_registry_lock.get_block("stone")
-                    };
-                    drop(block_registry_lock)
-                }
-            }
-        }
-
-        blocks
     }
 }

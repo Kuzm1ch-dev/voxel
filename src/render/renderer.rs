@@ -15,7 +15,7 @@ use crate::img_utils::RgbaImg;
 use crate::model::vertex::Vertex;
 use crate::world::block::BlockTextures;
 use crate::world::block_registry::BlockRegistry;
-use crate::world::chunk::{Chunk, ChunkManager};
+use crate::world::chunk::{Chunk};
 use crate::world::world::World;
 use wgpu::{
     BufferDescriptor, CommandEncoder, InstanceFlags, SamplerDescriptor, ShaderSource,
@@ -418,7 +418,6 @@ impl<'window> Renderer<'window> {
 
         let mut world = World::new(arc_device.clone(), arc_queue.clone());
         world.register_blocks(&arc_device, &arc_queue);
-        world.create_initial_chunks(1);
         let model: glam::Mat4 = glam::Mat4::from_rotation_x(camera_controller.rotation_x)
             * glam::Mat4::from_rotation_y(camera_controller.rotation_y)
             * glam::Mat4::from_rotation_z(camera_controller.rotation_z);
@@ -544,6 +543,7 @@ impl<'window> Renderer<'window> {
         surface_texture.present();
         self.profiler.end_scope("End Frame");
         self.profiler.end_frame();
+        self.world.update_visible_chunks(self.camera.get_eye_ivec());
         Ok(())
     }
 
@@ -621,7 +621,9 @@ impl<'window> Renderer<'window> {
         is_synthetic: bool,
     ) -> bool {
         match event.physical_key {
-            PhysicalKey::Code(code) => self.camera_controller.process_keyboard(code, event.state),
+            PhysicalKey::Code(code) => {
+                self.camera_controller.process_keyboard(code, event.state)
+            },
             _ => false,
         }
     }
