@@ -9,6 +9,7 @@ mod img_utils;
 mod world;
 mod render;
 
+
 fn main() -> Result<(), EventLoopError> {
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);

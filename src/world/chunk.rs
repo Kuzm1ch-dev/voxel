@@ -27,8 +27,8 @@ pub const CHUNK_SIZE_X: usize = 16;
 pub const CHUNK_SIZE_Y: usize = 256;
 pub const CHUNK_SIZE_Z: usize = 16;
 
-#[derive(Debug, Clone, Copy, EnumIter)]
-enum Direction {
+#[derive(Debug, Clone, Copy, EnumIter, PartialEq)]
+pub enum Direction {
     North,
     South,
     East,
@@ -250,8 +250,13 @@ impl Chunk {
                     Direction::West => block.textures.left.clone(),
                 };
                 let mut occulusion_vertex_map: HashMap<usize, f32> = HashMap::new();
+                occulusion_vertex_map.insert(0, 1.);
+                occulusion_vertex_map.insert(1, 1.);
+                occulusion_vertex_map.insert(2, 1.);
+                occulusion_vertex_map.insert(3, 1.);
                 let occulusion_factor = 0.35;
                 let occulusion_default = 1.0;
+                
                 match direction {
                     Direction::Up => {
                         if self.exist_block(
@@ -824,6 +829,7 @@ impl Chunk {
                         occulusion_vertex_map.insert(3, 1.0);
                     }
                 }
+                
                 for i in 0..4 {
                     /*
                     0---1
@@ -856,6 +862,7 @@ impl Chunk {
             }
         }
     }
+    
 
     fn exist_block(
         &self,
@@ -902,7 +909,7 @@ impl Chunk {
         return false;
     }
 
-    fn should_render_face(
+    pub fn should_render_face(
         &self,
         x: i32,
         y: i32,

@@ -65,7 +65,6 @@ fn start_mesh_generation_threads(
                         Err(_) => break, // Channel closed, exit thread
                     }
                 };
-                let now = Instant::now();
                 let chunk_lock = task.chunk.lock().unwrap();
                 let adjacent_chunks = task.neighbors.clone();
                 let block_registry_clone_lock = block_registry_clone.read().unwrap();
@@ -93,6 +92,7 @@ fn start_mesh_generation_threads(
                             },
                         ],
                     });
+                let now = Instant::now();
                 let (vertices, indices, atlas) = generate_mesh_data(
                     &chunk_lock,
                     &device_clone,
@@ -101,7 +101,7 @@ fn start_mesh_generation_threads(
                     &block_registry_clone_lock,
                     &texture_atlas_bind_group_layout,
                 );
-                
+                println!("Mesh generation took {}ms", now.elapsed().as_millis());
                 let mesh_data = ChunkMeshData {
                     vertices,
                     indices,
@@ -116,8 +116,6 @@ fn start_mesh_generation_threads(
                 if result_sender.send(result).is_err() {
                     break; // Receiver dropped, exit thread
                 }
-                let elapsed = now.elapsed();
-                println!("Mesh generation took {} ms", elapsed.as_millis());
             }
             println!("Mesh generation thread {} exiting", thread_id);
         });
@@ -131,8 +129,6 @@ fn start_mesh_generation_threads(
 
 impl ChunkManager {
     const RENDER_DISTANCE: i32 = 5;
-
-
     pub fn new(
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,

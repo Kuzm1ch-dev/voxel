@@ -1,15 +1,52 @@
-use std::{collections::{HashMap, VecDeque}, sync::{Arc, Mutex}};
+use std::{collections::{HashMap, VecDeque}, sync::{Arc, Mutex}, time::Instant};
 
 use glam::IVec3;
 use wgpu::BindGroupLayout;
-
 use crate::{model::vertex::Vertex, render::texture_manager::ChunkTextureAtlas};
 
 use super::{block_registry::BlockRegistry, chunk::{Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z}};
-
 const POOL_INITIAL_SIZE: usize = 64;
 const MAX_VERTICES_PER_CHUNK: usize = CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z * 24; // 24 vertices per block worst case
 const MAX_INDICES_PER_CHUNK: usize = CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z * 36; // 36 indices per block worst case
+
+type FaceFlags = u8;
+const FACE_POS_X: FaceFlags = 0b00000001;
+const FACE_NEG_X: FaceFlags = 0b00000010;
+const FACE_POS_Y: FaceFlags = 0b00000100;
+const FACE_NEG_Y: FaceFlags = 0b00001000;
+const FACE_POS_Z: FaceFlags = 0b00010000;
+const FACE_NEG_Z: FaceFlags = 0b00100000;
+
+pub fn calculate_visible_faces(block_cache: &[bool], x: usize, y: usize, z: usize, cache_size_x: usize, cache_size_y: usize) -> FaceFlags {
+    let mut faces: FaceFlags = 0;
+    
+    // Check if block exists
+    if !get_block_from_cache(x, y, z, block_cache, cache_size_x, cache_size_y) {
+        return 0;
+    }
+    
+    // Check each face
+    if !get_block_from_cache(x + 1, y, z, block_cache, cache_size_x, cache_size_y) {
+        faces |= FACE_POS_X;
+    }
+    if !get_block_from_cache(x - 1, y, z, block_cache, cache_size_x, cache_size_y) {
+        faces |= FACE_NEG_X;
+    }
+    if !get_block_from_cache(x, y + 1, z, block_cache, cache_size_x, cache_size_y) {
+        faces |= FACE_POS_Y;
+    }
+    if !get_block_from_cache(x, y - 1, z, block_cache, cache_size_x, cache_size_y) {
+        faces |= FACE_NEG_Y;
+    }
+    if !get_block_from_cache(x, y, z + 1, block_cache, cache_size_x, cache_size_y) {
+        faces |= FACE_POS_Z;
+    }
+    if !get_block_from_cache(x, y, z - 1, block_cache, cache_size_x, cache_size_y) {
+        faces |= FACE_NEG_Z;
+    }
+    
+    faces
+}
 
 fn create_block_cache(chunk: &Chunk, adjacent_chunks: &[Option<Arc<Mutex<Chunk>>>; 4]) -> Vec<bool> {
     // Create a cache that's larger than the chunk to include borders from adjacent chunks
@@ -25,9 +62,10 @@ fn create_block_cache(chunk: &Chunk, adjacent_chunks: &[Option<Arc<Mutex<Chunk>>
     for x in 0..CHUNK_SIZE_X {
         for y in 0..CHUNK_SIZE_Y {
             for z in 0..CHUNK_SIZE_Z {
-                let block = chunk.get_block(x, y, z);
-                let cache_index = get_cache_index(x + 1, y + 1, z + 1, cache_size_x, cache_size_y);
-                cache[cache_index] = block.is_some();
+                if chunk.get_block(x, y, z).is_some() {
+                    let cache_index = get_cache_index(x + 1, y + 1, z + 1, cache_size_x, cache_size_y);
+                    cache[cache_index] = true;
+                }
             }
         }
     }
@@ -40,9 +78,10 @@ fn create_block_cache(chunk: &Chunk, adjacent_chunks: &[Option<Arc<Mutex<Chunk>>
         if let Ok(adj_chunk) = adj_chunk.lock() {
             for y in 0..CHUNK_SIZE_Y {
                 for z in 0..CHUNK_SIZE_Z {
-                    let block = adj_chunk.get_block(CHUNK_SIZE_X - 1, y, z);
-                    let cache_index = get_cache_index(0, y + 1, z + 1, cache_size_x, cache_size_y);
-                    cache[cache_index] = block.is_some();
+                    if adj_chunk.get_block(CHUNK_SIZE_X - 1, y, z).is_some(){
+                        let cache_index = get_cache_index(0, y + 1, z + 1, cache_size_x, cache_size_y);
+                        cache[cache_index] = true;
+                    }
                 }
             }
         }
@@ -53,9 +92,10 @@ fn create_block_cache(chunk: &Chunk, adjacent_chunks: &[Option<Arc<Mutex<Chunk>>
         if let Ok(adj_chunk) = adj_chunk.lock() {
             for y in 0..CHUNK_SIZE_Y {
                 for z in 0..CHUNK_SIZE_Z {
-                    let block = adj_chunk.get_block(0, y, z);
-                    let cache_index = get_cache_index(CHUNK_SIZE_X + 1, y + 1, z + 1, cache_size_x, cache_size_y);
-                    cache[cache_index] = block.is_some();
+                    if adj_chunk.get_block(0, y, z).is_some(){
+                        let cache_index = get_cache_index(CHUNK_SIZE_X + 1, y + 1, z + 1, cache_size_x, cache_size_y);
+                        cache[cache_index] = true;
+                    }
                 }
             }
         }
@@ -66,9 +106,10 @@ fn create_block_cache(chunk: &Chunk, adjacent_chunks: &[Option<Arc<Mutex<Chunk>>
         if let Ok(adj_chunk) = adj_chunk.lock() {
             for x in 0..CHUNK_SIZE_X {
                 for y in 0..CHUNK_SIZE_Y {
-                    let block = adj_chunk.get_block(x, y, CHUNK_SIZE_Z - 1);
-                    let cache_index = get_cache_index(x + 1, y + 1, 0, cache_size_x, cache_size_y);
-                    cache[cache_index] = block.is_some();
+                    if adj_chunk.get_block(x, y, CHUNK_SIZE_Z - 1).is_some(){
+                        let cache_index = get_cache_index(x + 1, y + 1, 0, cache_size_x, cache_size_y);
+                        cache[cache_index] = true;
+                    }
                 }
             }
         }
@@ -79,9 +120,10 @@ fn create_block_cache(chunk: &Chunk, adjacent_chunks: &[Option<Arc<Mutex<Chunk>>
         if let Ok(adj_chunk) = adj_chunk.lock() {
             for x in 0..CHUNK_SIZE_X {
                 for y in 0..CHUNK_SIZE_Y {
-                    let block = adj_chunk.get_block(x, y, 0);
-                    let cache_index = get_cache_index(x + 1, y + 1, CHUNK_SIZE_Z + 1, cache_size_x, cache_size_y);
-                    cache[cache_index] = block.is_some();
+                    if adj_chunk.get_block(x, y, 0).is_some(){
+                        let cache_index = get_cache_index(x + 1, y + 1, CHUNK_SIZE_Z + 1, cache_size_x, cache_size_y);
+                        cache[cache_index] = true;
+                    }
                 }
             }
         }
@@ -129,7 +171,6 @@ pub fn generate_mesh_data(
     let block_cache = create_block_cache(chunk, &adjacent_chunks);
     let cache_size_x = CHUNK_SIZE_X + 2;
     let cache_size_y = CHUNK_SIZE_Y + 2;
-    
     // Use the cache for mesh generation
     for x in 0..CHUNK_SIZE_X {
         for y in 0..CHUNK_SIZE_Y {
