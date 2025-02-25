@@ -666,7 +666,7 @@ impl<'window> Renderer<'window> {
                         .world
                         .ray_cast(self.camera.target, direction, 25.0)
                     {
-                        let block_registry_lock = self.world.block_registry.lock().unwrap();
+                        let block_registry_lock = self.world.block_registry.read().unwrap();
                         if let Some(block) = block_registry_lock.get_block("dirt"){
                             drop(block_registry_lock);
                             let reverse_normal = normal * -1;

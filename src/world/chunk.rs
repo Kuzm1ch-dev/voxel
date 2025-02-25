@@ -43,8 +43,6 @@ pub struct AdjacentChunks<'a> {
     pub south: Option<&'a Chunk>,
     pub east: Option<&'a Chunk>,
     pub west: Option<&'a Chunk>,
-    pub up: Option<&'a Chunk>,
-    pub down: Option<&'a Chunk>,
 }
 
 impl<'a> AdjacentChunks<'a> {
@@ -53,22 +51,18 @@ impl<'a> AdjacentChunks<'a> {
         south: Option<&'a Chunk>,
         east: Option<&'a Chunk>,
         west: Option<&'a Chunk>,
-        up: Option<&'a Chunk>,
-        down: Option<&'a Chunk>,
     ) -> Self {
         Self {
             north,
             south,
             east,
             west,
-            up,
-            down,
         }
     }
 
     pub fn to_vec(&self) -> Vec<Option<&Chunk>> {
         vec![
-            self.north, self.south, self.east, self.west, self.up, self.down,
+            self.north, self.south, self.east, self.west
         ]
     }
 }
@@ -148,7 +142,7 @@ impl Chunk {
         z: usize,
         vertices: &mut Vec<Vertex>,
         indices: &mut Vec<u16>,
-        adjacent_chunks: [Option<Arc<Mutex<Chunk>>>; 6],
+        adjacent_chunks: [Option<Arc<Mutex<Chunk>>>; 4],
         block_registry: &BlockRegistry,
         atlas: &ChunkTextureAtlas,
     ) {
@@ -868,7 +862,7 @@ impl Chunk {
         x: i32,
         y: i32,
         z: i32,
-        adjacent_chunks: Arc<[Option<Arc<Mutex<Chunk>>>; 6]>,
+        adjacent_chunks: Arc<[Option<Arc<Mutex<Chunk>>>; 4]>,
     ) -> bool {
         if x >= 0
             && x < CHUNK_SIZE_X as i32
@@ -905,19 +899,6 @@ impl Chunk {
                 return chunk_lock.get_block(0, y as usize, z as usize) != None;
             }
         }
-        if y < 0 {
-            if let Some(chunk) = adjacent_chunks[4].clone() {
-                let chunk_lock = chunk.lock().unwrap();
-                return chunk_lock.get_block(x as usize, CHUNK_SIZE_Y as usize - 1, z as usize)
-                    != None;
-            }
-        }
-        if y >= CHUNK_SIZE_Y as i32 {
-            if let Some(chunk) = adjacent_chunks[5].clone() {
-                let chunk_lock = chunk.lock().unwrap();
-                return chunk_lock.get_block(x as usize, 0, z as usize) != None;
-            }
-        }
         return false;
     }
 
@@ -926,7 +907,7 @@ impl Chunk {
         x: i32,
         y: i32,
         z: i32,
-        adjacent_chunks: Arc<[Option<Arc<Mutex<Chunk>>>; 6]>,
+        adjacent_chunks: Arc<[Option<Arc<Mutex<Chunk>>>; 4]>,
         direction: Direction,
     ) -> bool {
         // Check if the adjacent block is within the current chunk
@@ -964,20 +945,6 @@ impl Chunk {
             Direction::West => {
                 if let Some(chunk) = adjacent_chunks[3].clone() {
                     (chunk, CHUNK_SIZE_X as usize - 1, y as usize, z as usize)
-                } else {
-                    return true;
-                }
-            }
-            Direction::Up => {
-                if let Some(chunk) = adjacent_chunks[4].clone() {
-                    (chunk, x as usize, 0, z as usize)
-                } else {
-                    return true;
-                }
-            }
-            Direction::Down => {
-                if let Some(chunk) = adjacent_chunks[5].clone() {
-                    (chunk, x as usize, CHUNK_SIZE_Y as usize - 1, z as usize)
                 } else {
                     return true;
                 }

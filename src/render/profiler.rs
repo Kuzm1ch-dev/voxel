@@ -18,7 +18,7 @@ impl Profiler {
             frame_start: Instant::now(),
             print_interval: Duration::from_secs(1),
             last_print: Instant::now(),
-            enabled: true
+            enabled: false
         }
     }
     pub fn toggle(&mut self) {

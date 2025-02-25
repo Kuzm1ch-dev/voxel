@@ -1,5 +1,5 @@
 use std::{
-    array, collections::HashSet, path::Path, sync::{Arc, Mutex}
+    array, collections::HashSet, path::Path, sync::{Arc, Mutex, RwLock}
 };
 
 use glam::IVec3;
@@ -21,14 +21,14 @@ use super::{
 };
 
 pub struct World {
-    pub block_registry: Arc<Mutex<BlockRegistry>>,
+    pub block_registry: Arc<RwLock<BlockRegistry>>,
     chunk_manager: ChunkManager,
 }
 
 impl World {
     pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
         let block_registry = BlockRegistry::new(&device);
-        let _block_registry = Arc::new(Mutex::new(block_registry));
+        let _block_registry = Arc::new(RwLock::new(block_registry));
         Self {
             block_registry: _block_registry.clone(),
             chunk_manager: ChunkManager::new(device, queue, _block_registry),
@@ -36,7 +36,7 @@ impl World {
     }
 
     pub fn register_blocks(&mut self, device: &Device, queue: &Queue) {
-        let mut block_registry_lock = self.block_registry.lock().unwrap();
+        let mut block_registry_lock = self.block_registry.write().unwrap();
         let _ = block_registry_lock.register_block(
             &device,
             &queue,

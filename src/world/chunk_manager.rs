@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, sync::{mpsc::{channel, Receiver, Sender}, Arc, Mutex}, thread};
+use std::{collections::{HashMap, HashSet, VecDeque}, sync::{mpsc::{self, channel, Receiver, Sender}, Arc, Mutex, RwLock}, thread, time::Instant};
 
 use glam::IVec3;
 use noise::{NoiseFn, Perlin};
@@ -13,7 +13,8 @@ pub struct ChunkManager {
     update_queue: VecDeque<IVec3>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
-    block_registry: Arc<Mutex<BlockRegistry>>,
+    block_registry: Arc<RwLock<BlockRegistry>>,
+    mesh_generation_threads: Vec<thread::JoinHandle<()>>,
     mesh_sender: Sender<MeshGenerationTask>,
     mesh_receiver: Receiver<MeshGenerationResult>,
 }
@@ -21,7 +22,7 @@ pub struct ChunkManager {
 struct MeshGenerationTask {
     chunk_pos: IVec3,
     chunk: Arc<Mutex<Chunk>>,
-    neighbors: [Option<Arc<Mutex<Chunk>>>; 6],
+    neighbors: [Option<Arc<Mutex<Chunk>>>; 4],
 }
 
 struct ChunkMeshData {
@@ -35,28 +36,39 @@ struct MeshGenerationResult {
     mesh_data: ChunkMeshData, // You'll need to define this struct to hold vertex/index data
 }
 
-
-
-impl ChunkManager {
-    const RENDER_DISTANCE: i32 = 4;
-
-
-    pub fn new(
-        device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
-        block_registry: Arc<Mutex<BlockRegistry>>,
-    ) -> Self {
-        let (task_sender, task_receiver) = channel::<MeshGenerationTask>(); // создаем канал
-        let (result_sender, result_receiver) = channel::<MeshGenerationResult>();
+fn start_mesh_generation_threads(
+    task_receiver: Arc<Mutex<mpsc::Receiver<MeshGenerationTask>>>,
+    result_sender: mpsc::Sender<MeshGenerationResult>,
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
+    block_registry: Arc<RwLock<BlockRegistry>>,
+    thread_count: usize,
+) -> Vec<thread::JoinHandle<()>> {
+    let mut handles = Vec::with_capacity(thread_count);
+    
+    for thread_id in 0..thread_count {
+        let task_receiver = task_receiver.clone();
+        let result_sender = result_sender.clone();
         let device_clone = device.clone();
         let queue_clone = queue.clone();
         let block_registry_clone = block_registry.clone();
-        // Spawn mesh generation thread
-        thread::spawn(move || {
-            while let Ok(task) = task_receiver.recv() {
+        
+        let handle = thread::spawn(move || {
+            println!("Mesh generation thread {} started", thread_id);
+            
+            loop {
+                // Get a task from the shared receiver
+                let task = {
+                    let receiver = task_receiver.lock().unwrap();
+                    match receiver.recv() {
+                        Ok(task) => task,
+                        Err(_) => break, // Channel closed, exit thread
+                    }
+                };
+                let now = Instant::now();
                 let chunk_lock = task.chunk.lock().unwrap();
                 let adjacent_chunks = task.neighbors.clone();
-                let block_registry_clone_lock = block_registry_clone.lock().unwrap();
+                let block_registry_clone_lock = block_registry_clone.read().unwrap();
                 let texture_atlas_bind_group_layout =
                     device_clone.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                         label: Some("Chunk Texture Bind Group Layout"),
@@ -89,20 +101,55 @@ impl ChunkManager {
                     &block_registry_clone_lock,
                     &texture_atlas_bind_group_layout,
                 );
+                
                 let mesh_data = ChunkMeshData {
                     vertices,
                     indices,
                     atlas,
                 };
+                
                 let result = MeshGenerationResult {
                     chunk_pos: task.chunk_pos,
                     mesh_data,
                 };
+                
                 if result_sender.send(result).is_err() {
-                    break;
+                    break; // Receiver dropped, exit thread
                 }
+                let elapsed = now.elapsed();
+                println!("Mesh generation took {} ms", elapsed.as_millis());
             }
+            println!("Mesh generation thread {} exiting", thread_id);
         });
+        
+        handles.push(handle);
+    }
+    
+    handles
+}
+
+
+impl ChunkManager {
+    const RENDER_DISTANCE: i32 = 5;
+
+
+    pub fn new(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        block_registry: Arc<RwLock<BlockRegistry>>,
+    ) -> Self {
+        let (task_sender, task_receiver) = channel::<MeshGenerationTask>(); // создаем канал
+        let (result_sender, result_receiver) = channel::<MeshGenerationResult>();
+        let thread_count = 2; 
+        let task_receiver = Arc::new(Mutex::new(task_receiver));
+        let mesh_generation_threads = start_mesh_generation_threads(
+            task_receiver.clone(),
+            result_sender,
+            device.clone(),
+            queue.clone(),
+            block_registry.clone(),
+            thread_count,
+        );
         Self {
             chunks: HashMap::new(),
             mesh_manager: ChunkMeshManager::new(device.clone(), queue.clone()),
@@ -110,6 +157,7 @@ impl ChunkManager {
             device,
             queue,
             block_registry,
+            mesh_generation_threads,
             mesh_sender: task_sender,
             mesh_receiver: result_receiver,
         }
@@ -129,7 +177,7 @@ impl ChunkManager {
                 chunks_to_keep.insert(chunk_pos);
                 
                 // If chunk doesn't exist, create it
-                if !self.chunks.contains_key(&chunk_pos) {
+                if !self.chunks.contains_key(&chunk_pos) && !self.update_queue.contains(&chunk_pos){
                     let mut new_chunk = Chunk::new(chunk_pos);
                     // Here you would add your terrain generation logic
                     self.generate_terrain(&mut new_chunk);
@@ -165,7 +213,7 @@ impl ChunkManager {
                 for y in 0..CHUNK_SIZE_Y {
                     if y < height - 4 {
                         chunk.set_block(x, y, z, Some(
-                            BlockType::new("grass".to_string(), BlockTextures::uniform("grass".to_string()))
+                            BlockType::new("stone".to_string(), BlockTextures::uniform("stone".to_string()))
                         ));
                     } else if y < height {
                         chunk.set_block(x, y, z, Some(
@@ -173,7 +221,7 @@ impl ChunkManager {
                         ));
                     } else if y == height {
                         chunk.set_block(x, y, z, Some(
-                            BlockType::new("stone".to_string(), BlockTextures::uniform("stone".to_string()))
+                            BlockType::new("grass".to_string(), BlockTextures::uniform("grass".to_string()))
                         ));
                     }
                 }
@@ -196,7 +244,7 @@ impl ChunkManager {
 
         // Queue adjacent chunks for update
         for adj_pos in self.get_adjacent_chunk_positions(position) {
-            if self.chunks.contains_key(&adj_pos) {
+            if !self.chunks.contains_key(&adj_pos) {
                 self.update_queue.push_back(adj_pos);
             }
         }
@@ -242,7 +290,7 @@ impl ChunkManager {
         profiler.begin_scope("Mesh Sender");
         if let Some(chunk_pos) = self.update_queue.pop_front() {
             if let Some(chunk) = self.chunks.get(&chunk_pos) {
-                let adjacent_chunks = self.get_adjacent_chunks(chunk_pos);
+                let adjacent_chunks: AdjacentChunks<'_> = self.get_adjacent_chunks(chunk_pos);
                 let _ = self.mesh_sender.send(MeshGenerationTask {
                     chunk_pos,
                     chunk: Arc::new(Mutex::new(chunk.clone())),
@@ -258,11 +306,7 @@ impl ChunkManager {
                             .map(|c| Arc::new(Mutex::new(c.clone()))),
                         adjacent_chunks
                             .west
-                            .map(|c| Arc::new(Mutex::new(c.clone()))),
-                        adjacent_chunks.up.map(|c| Arc::new(Mutex::new(c.clone()))),
-                        adjacent_chunks
-                            .down
-                            .map(|c| Arc::new(Mutex::new(c.clone()))),
+                            .map(|c| Arc::new(Mutex::new(c.clone())))
                     ],
                 });
             }
@@ -294,9 +338,7 @@ impl ChunkManager {
             self.chunks.get(&(position + IVec3::new(0, 0, -1))),
              self.chunks.get(&(position + IVec3::new(0, 0, 1))),
              self.chunks.get(&(position + IVec3::new(1, 0, 0))),
-             self.chunks.get(&(position + IVec3::new(-1, 0, 0))),
-             self.chunks.get(&(position + IVec3::new(0, 1, 0))),
-             self.chunks.get(&(position + IVec3::new(0, -1, 0)))
+             self.chunks.get(&(position + IVec3::new(-1, 0, 0)))
         )
     }
 
