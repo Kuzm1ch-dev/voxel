@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use voxel_engine::{Engine, BitmapFont};
+use voxel_engine::Engine;
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
@@ -30,6 +30,10 @@ impl<'window> ApplicationHandler for Game<'window> {
             let mut engine = Engine::new_with_textures(window.clone(), texture_paths);
             engine.lock_cursor(); // Блокируем курсор сразу
             TextureLoader::load_block_textures(&mut engine);
+            
+            // Загружаем UI текстуры
+            engine.load_ui_texture("game/assets/textures/block/dirt.png");
+            
             self.engine = Some(engine);
             self.game_state = Some(game_state);
         }
@@ -78,20 +82,22 @@ impl<'window> ApplicationHandler for Game<'window> {
                     
                     // Always show coordinates in top-left
                     let pos = player.get_camera_position();
-                    BitmapFont::render_text(&mut engine.ui_renderer, &format!("X: {:.1}", pos.x), Vec2::new(0.02, 0.02), 1.0, Vec4::new(1.0, 1.0, 1.0, 1.0));
-                    BitmapFont::render_text(&mut engine.ui_renderer, &format!("Y: {:.1}", pos.y), Vec2::new(0.02, 0.06), 1.0, Vec4::new(1.0, 1.0, 1.0, 1.0));
-                    BitmapFont::render_text(&mut engine.ui_renderer, &format!("Z: {:.1}", pos.z), Vec2::new(0.02, 0.10), 1.0, Vec4::new(1.0, 1.0, 1.0, 1.0));
+                    engine.add_ui_text(&format!("X: {:.1}", pos.x), Vec2::new(0.02, 0.02), 1.0, Vec4::new(1.0, 1.0, 1.0, 1.0));
+                    engine.add_ui_text(&format!("Y: {:.1}", pos.y), Vec2::new(0.02, 0.06), 1.0, Vec4::new(1.0, 1.0, 1.0, 1.0));
+                    engine.add_ui_text(&format!("Z: {:.1}", pos.z), Vec2::new(0.02, 0.10), 1.0, Vec4::new(1.0, 1.0, 1.0, 1.0));
                     
                     if game_state.ui_open {
                         // Draw UI background
                         engine.add_ui_rect(Vec2::new(0.3, 0.3), Vec2::new(0.4, 0.4), Vec4::new(0.2, 0.2, 0.2, 0.9));
                         
                         // Draw bitmap text
-                        BitmapFont::render_text(&mut engine.ui_renderer, "INVENTORY", Vec2::new(0.32, 0.32), 2.0, Vec4::new(1.0, 1.0, 1.0, 1.0));
-                        BitmapFont::render_text(&mut engine.ui_renderer, "PRESS I TO CLOSE", Vec2::new(0.32, 0.62), 1.0, Vec4::new(1.0, 1.0, 0.0, 1.0));
+                        engine.add_ui_text("INVENTORY", Vec2::new(0.32, 0.32), 2.0, Vec4::new(1.0, 1.0, 1.0, 1.0));
+                        engine.add_ui_text("PRESS I TO CLOSE", Vec2::new(0.32, 0.62), 1.0, Vec4::new(1.0, 1.0, 0.0, 1.0));
                         
-                        // Show grass texture as example
-                        engine.add_ui_rect(Vec2::new(0.75, 0.1), Vec2::new(0.2, 0.2), Vec4::new(0.0, 1.0, 0.0, 1.0)); // Green placeholder for grass texture
+                        // Show dirt texture
+                        if let Some(dirt_id) = engine.get_ui_texture_id("game/assets/textures/block/dirt.png") {
+                            engine.add_ui_image(Vec2::new(0.75, 0.1), Vec2::new(0.2, 0.2), dirt_id);
+                        }
                     }
                     
                     game_state.world.render(engine);

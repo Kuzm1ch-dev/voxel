@@ -22,6 +22,7 @@ pub struct Engine<'window> {
     pub cursor_manager: CursorManager,
     window: Arc<Window>,
     pub grass_texture: Option<(wgpu::Texture, wgpu::TextureView)>,
+    ui_textures: std::collections::HashMap<String, u32>,
 }
 
 impl<'window> Engine<'window> {
@@ -30,7 +31,7 @@ impl<'window> Engine<'window> {
         let ui_renderer = UIRenderer::new(renderer.get_device(), renderer.get_surface_format());
         let image_renderer = ImageRenderer::new(renderer.get_device(), renderer.get_surface_format());
         let cursor_manager = CursorManager::new();
-        Self { renderer, ui_renderer, image_renderer, cursor_manager, window, grass_texture: None }
+        Self { renderer, ui_renderer, image_renderer, cursor_manager, window, grass_texture: None, ui_textures: std::collections::HashMap::new() }
     }
     
     pub fn new_with_textures(window: Arc<Window>, texture_paths: &[String]) -> Self {
@@ -77,7 +78,7 @@ impl<'window> Engine<'window> {
             None
         };
         
-        Self { renderer, ui_renderer, image_renderer, cursor_manager, window, grass_texture }
+        Self { renderer, ui_renderer, image_renderer, cursor_manager, window, grass_texture, ui_textures: std::collections::HashMap::new() }
     }
 
     pub fn clear_meshes(&mut self) {
@@ -122,5 +123,34 @@ impl<'window> Engine<'window> {
         self.ui_renderer.add_rect(pos, size, color);
     }
     
+    pub fn add_ui_text(&mut self, text: &str, pos: Vec2, scale: f32, color: Vec4) {
+        BitmapFont::render_text(&mut self.ui_renderer, text, pos, scale, color);
+    }
+    
+    pub fn add_ui_image(&mut self, pos: Vec2, size: Vec2, texture_id: u32) {
+        self.image_renderer.render_texture(&mut self.ui_renderer, pos, size, texture_id, self.renderer.get_device(), self.renderer.get_queue());
+    }
+    
+    pub fn load_ui_texture(&mut self, path: &str) -> Option<u32> {
+        if let Ok(img) = image::open(path) {
+            let rgba = img.to_rgba8();
+            let dimensions = rgba.dimensions();
+            
+            // Найдем свободный ID для текстуры (не трогаем блочные текстуры)
+            let texture_id = self.ui_textures.len() as u32;
+            
+            // Загружаем текстуру в ImageRenderer
+            self.image_renderer.load_texture(self.renderer.get_device(), self.renderer.get_queue(), texture_id, &rgba, dimensions);
+            
+            self.ui_textures.insert(path.to_string(), texture_id);
+            Some(texture_id)
+        } else {
+            None
+        }
+    }
+    
+    pub fn get_ui_texture_id(&self, path: &str) -> Option<u32> {
+        self.ui_textures.get(path).copied()
+    }
 
 }
