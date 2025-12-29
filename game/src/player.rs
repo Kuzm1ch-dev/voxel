@@ -17,7 +17,7 @@ impl GamePlayer {
             velocity: Vec3::ZERO,
             yaw: 0.0,
             pitch: 0.0,
-            speed: 10.0,
+            speed: 40.0,
             sensitivity: 0.005,
         }
     }

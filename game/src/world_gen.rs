@@ -1,12 +1,12 @@
 use voxel_engine::Vertex;
 use std::collections::HashMap;
-use crate::blocks::{BlockRegistry, BlockType};
+use crate::common::block_registry::BlockRegistry;
 
 const CHUNK_SIZE: usize = 16;
 const CHUNK_HEIGHT: usize = 64;
 
 pub struct Chunk {
-    pub blocks: [[[BlockType; CHUNK_SIZE]; CHUNK_HEIGHT]; CHUNK_SIZE],
+    pub blocks: Vec<Vec<Vec<String>>>,
     pub position: (i32, i32),
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u16>,
@@ -14,8 +14,10 @@ pub struct Chunk {
 
 impl Chunk {
     pub fn new(x: i32, z: i32, registry: &BlockRegistry) -> Self {
+        let mut blocks = vec![vec![vec!["air".to_string(); CHUNK_SIZE]; CHUNK_HEIGHT]; CHUNK_SIZE];
+        
         let mut chunk = Self {
-            blocks: [[[BlockType::AIR; CHUNK_SIZE]; CHUNK_HEIGHT]; CHUNK_SIZE],
+            blocks,
             position: (x, z),
             vertices: Vec::new(),
             indices: Vec::new(),
@@ -33,29 +35,29 @@ impl Chunk {
                 
                 for y in 0..height.min(CHUNK_HEIGHT) {
                     if y < height - 4 {
-                        self.blocks[x][y][z] = BlockType::STONE;
+                        self.blocks[x][y][z] = "stone".to_string();
                     } else if y < height - 1 {
-                        self.blocks[x][y][z] = BlockType::DIRT;
+                        self.blocks[x][y][z] = "dirt".to_string();
                     } else {
-                        self.blocks[x][y][z] = BlockType::GRASS;
+                        self.blocks[x][y][z] = "grass".to_string();
                     }
                 }
             }
         }
     }
     
-    fn get_block(&self, x: i32, y: i32, z: i32) -> BlockType {
+    fn get_block(&self, x: i32, y: i32, z: i32) -> &str {
         if x < 0 || x >= CHUNK_SIZE as i32 || y < 0 || y >= CHUNK_HEIGHT as i32 || z < 0 || z >= CHUNK_SIZE as i32 {
-            return BlockType::AIR;
+            return "air";
         }
-        self.blocks[x as usize][y as usize][z as usize]
+        &self.blocks[x as usize][y as usize][z as usize]
     }
     
-    pub fn set_block(&mut self, x: usize, y: usize, z: usize, block_type: BlockType, registry: &BlockRegistry) {
+    pub fn set_block(&mut self, x: usize, y: usize, z: usize, block_id: &str, registry: &BlockRegistry) {
         if x >= CHUNK_SIZE || y >= CHUNK_HEIGHT || z >= CHUNK_SIZE {
             return;
         }
-        self.blocks[x][y][z] = block_type;
+        self.blocks[x][y][z] = block_id.to_string();
         self.generate_mesh(registry);
     }
     
@@ -69,8 +71,8 @@ impl Chunk {
         for x in 0..CHUNK_SIZE as i32 {
             for y in 0..CHUNK_HEIGHT as i32 {
                 for z in 0..CHUNK_SIZE as i32 {
-                    let block = self.get_block(x, y, z);
-                    if block == BlockType::AIR {
+                    let block_id = self.get_block(x, y, z);
+                    if block_id == "air" {
                         continue;
                     }
                     
@@ -78,25 +80,25 @@ impl Chunk {
                     let world_y = y;
                     let world_z = chunk_world_z + z;
                     
-                    let tex_index = registry.get_texture_index(block.0);
+                    let tex_index = registry.get_texture_index(block_id);
                     
                     // Check each face and add if exposed
-                    if self.get_block(x, y, z + 1) == BlockType::AIR {
+                    if self.get_block(x, y, z + 1) == "air" {
                         self.add_face([world_x as f32, world_y as f32, (world_z + 1) as f32], [0.0, 0.0, 1.0], tex_index);
                     }
-                    if self.get_block(x, y, z - 1) == BlockType::AIR {
+                    if self.get_block(x, y, z - 1) == "air" {
                         self.add_face([world_x as f32, world_y as f32, world_z as f32], [0.0, 0.0, -1.0], tex_index);
                     }
-                    if self.get_block(x + 1, y, z) == BlockType::AIR {
+                    if self.get_block(x + 1, y, z) == "air" {
                         self.add_face([(world_x + 1) as f32, world_y as f32, world_z as f32], [1.0, 0.0, 0.0], tex_index);
                     }
-                    if self.get_block(x - 1, y, z) == BlockType::AIR {
+                    if self.get_block(x - 1, y, z) == "air" {
                         self.add_face([world_x as f32, world_y as f32, world_z as f32], [-1.0, 0.0, 0.0], tex_index);
                     }
-                    if self.get_block(x, y + 1, z) == BlockType::AIR {
+                    if self.get_block(x, y + 1, z) == "air" {
                         self.add_face([world_x as f32, (world_y + 1) as f32, world_z as f32], [0.0, 1.0, 0.0], tex_index);
                     }
-                    if self.get_block(x, y - 1, z) == BlockType::AIR {
+                    if self.get_block(x, y - 1, z) == "air" {
                         self.add_face([world_x as f32, world_y as f32, world_z as f32], [0.0, -1.0, 0.0], tex_index);
                     }
                 }
@@ -195,15 +197,15 @@ impl World {
         let local_z = world_z.rem_euclid(CHUNK_SIZE as i32) as usize;
         
         if let Some(chunk) = self.chunks.get_mut(&(chunk_x, chunk_z)) {
-            if local_y < CHUNK_HEIGHT && chunk.blocks[local_x][local_y][local_z] != BlockType::AIR {
-                chunk.set_block(local_x, local_y, local_z, BlockType::AIR, &self.registry);
+            if local_y < CHUNK_HEIGHT && chunk.blocks[local_x][local_y][local_z] != "air" {
+                chunk.set_block(local_x, local_y, local_z, "air", &self.registry);
                 return true;
             }
         }
         false
     }
     
-    pub fn place_block(&mut self, world_pos: (i32, i32, i32), block_type: BlockType) -> bool {
+    pub fn place_block(&mut self, world_pos: (i32, i32, i32), block_id: &str) -> bool {
         let (world_x, world_y, world_z) = world_pos;
         let chunk_x = world_x.div_euclid(CHUNK_SIZE as i32);
         let chunk_z = world_z.div_euclid(CHUNK_SIZE as i32);
@@ -212,11 +214,27 @@ impl World {
         let local_z = world_z.rem_euclid(CHUNK_SIZE as i32) as usize;
         
         if let Some(chunk) = self.chunks.get_mut(&(chunk_x, chunk_z)) {
-            if local_y < CHUNK_HEIGHT && chunk.blocks[local_x][local_y][local_z] == BlockType::AIR {
-                chunk.set_block(local_x, local_y, local_z, block_type, &self.registry);
+            if local_y < CHUNK_HEIGHT && chunk.blocks[local_x][local_y][local_z] == "air" {
+                chunk.set_block(local_x, local_y, local_z, block_id, &self.registry);
                 return true;
             }
         }
         false
+    }
+    
+    pub fn get_block_at(&self, world_pos: (i32, i32, i32)) -> &str {
+        let (world_x, world_y, world_z) = world_pos;
+        let chunk_x = world_x.div_euclid(CHUNK_SIZE as i32);
+        let chunk_z = world_z.div_euclid(CHUNK_SIZE as i32);
+        let local_x = world_x.rem_euclid(CHUNK_SIZE as i32) as usize;
+        let local_y = world_y as usize;
+        let local_z = world_z.rem_euclid(CHUNK_SIZE as i32) as usize;
+        
+        if let Some(chunk) = self.chunks.get(&(chunk_x, chunk_z)) {
+            if local_y < CHUNK_HEIGHT {
+                return &chunk.blocks[local_x][local_y][local_z];
+            }
+        }
+        "air"
     }
 }

@@ -8,7 +8,7 @@ name = "voxel_game"
 path = "src/main.rs"
 
 [dependencies]
-voxel_engine = { path = "../engine" }
+voxel_engine = { path = "../crates/engine" }
 winit = { version = "0.30.8" }
 glam = "*"
 noise = "*"

@@ -13,7 +13,7 @@ use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 use winit::window::Window;
 
-use crate::img_utils::RgbaImg;
+use crate::utils::img::RgbaImg;
 use voxel_engine::Vertex;
 use crate::render::camera::{BoundingBox, Camera};
 use crate::render::profiler::Profiler;

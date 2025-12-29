@@ -1,4 +1,6 @@
 [workspace]
-members = ["engine", "game"]
+members = [
+    "crates/engine",
+    "game"
+]
 resolver = "2"
-

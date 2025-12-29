@@ -2,7 +2,7 @@ use glam::Vec3;
 use voxel_engine::InputEvent;
 use crate::player::GamePlayer;
 use crate::voxel_world::VoxelWorld;
-use crate::blocks::BlockType;
+use crate::systems::raycast::Raycast;
 use std::collections::HashSet;
 use winit::keyboard::KeyCode;
 
@@ -10,7 +10,7 @@ pub struct VoxelGameState {
     pub player: GamePlayer,
     pub world: VoxelWorld,
     pressed_keys: HashSet<KeyCode>,
-    pub ui_open: bool,
+    mouse_position: Option<glam::Vec2>,
 }
 
 impl VoxelGameState {
@@ -19,13 +19,21 @@ impl VoxelGameState {
             player: GamePlayer::new(Vec3::new(0.0, 0.0, 5.0)),
             world: VoxelWorld::new(),
             pressed_keys: HashSet::new(),
-            ui_open: false,
+            mouse_position: None,
         }
     }
 
-    pub fn update(&mut self, dt: f32) {
+    pub fn get_mouse_position(&self) -> Option<glam::Vec2> {
+        self.mouse_position
+    }
+    
+    pub fn set_mouse_position(&mut self, pos: glam::Vec2) {
+        self.mouse_position = Some(pos);
+    }
+
+    pub fn update(&mut self, dt: f32, ui_open: bool) {
         // Handle continuous key presses only if UI is not open
-        if !self.ui_open {
+        if !ui_open {
             if self.pressed_keys.contains(&KeyCode::KeyW) {
                 self.player.move_forward(dt);
             }
@@ -49,68 +57,52 @@ impl VoxelGameState {
         self.player.update(dt);
     }
 
-    pub fn handle_input(&mut self, input: &InputEvent) {
+    pub fn handle_input(&mut self, input: &InputEvent, ui_open: bool) {
         match input {
             InputEvent::KeyPressed(key) => {
-                if *key == KeyCode::KeyI {
-                    self.ui_open = !self.ui_open;
-                    return;
-                }
                 self.pressed_keys.insert(*key);
             }
             InputEvent::KeyReleased(key) => {
                 self.pressed_keys.remove(key);
             }
             InputEvent::MouseMotion(dx, dy) => {
-                if !self.ui_open {
+                if !ui_open {
                     self.player.look(*dx, -*dy);
                 }
             }
+            InputEvent::CursorMoved(x, y) => {
+                // Нормализуем координаты к диапазону 0-1
+                // TODO: получить размер окна для правильной нормализации
+                let normalized_x = *x / 800.0; // предполагаем ширину 800
+                let normalized_y = *y / 600.0; // предполагаем высоту 600
+                self.set_mouse_position(glam::Vec2::new(normalized_x, normalized_y));
+            }
             InputEvent::MouseButton(button, state) => {
-                if !self.ui_open && *state == winit::event::ElementState::Pressed {
+                if !ui_open && *state == winit::event::ElementState::Pressed {
                     match button {
                         winit::event::MouseButton::Left => {
-                            // Break block
+                            // Break block using raycast
                             let ray_pos = self.player.get_camera_position();
                             let ray_dir = (self.player.get_camera_target() - ray_pos).normalize();
                             
-                            // Simple raycast - check blocks in front of player
-                            for i in 1..10 {
-                                let check_pos = ray_pos + ray_dir * i as f32;
-                                let block_pos = (
-                                    check_pos.x.floor() as i32,
-                                    check_pos.y.floor() as i32,
-                                    check_pos.z.floor() as i32,
-                                );
-                                
-                                if self.world.break_block(block_pos) {
-                                    break;
-                                }
+                            if let Some(hit) = Raycast::cast_ray(ray_pos, ray_dir, 10.0, &self.world) {
+                                self.world.break_block(hit.block_pos);
                             }
                         }
                         winit::event::MouseButton::Right => {
-                            // Place block
+                            // Place block using raycast
                             let ray_pos = self.player.get_camera_position();
                             let ray_dir = (self.player.get_camera_target() - ray_pos).normalize();
                             
-                            for i in 1..10 {
-                                let check_pos = ray_pos + ray_dir * i as f32;
-                                let block_pos = (
-                                    check_pos.x.floor() as i32,
-                                    check_pos.y.floor() as i32,
-                                    check_pos.z.floor() as i32,
-                                );
-                                
-                                if self.world.place_block(block_pos, BlockType::STONE) {
-                                    break;
-                                }
+                            if let Some(hit) = Raycast::cast_ray(ray_pos, ray_dir, 10.0, &self.world) {
+                                let place_pos = Raycast::get_adjacent_block_pos(&hit);
+                                self.world.place_block(place_pos, "stone");
                             }
                         }
                         _ => {}
                     }
                 }
             }
-            _ => {}
         }
     }
 }

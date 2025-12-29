@@ -1,6 +1,5 @@
 use voxel_engine::Engine;
 use crate::world_gen::World;
-use crate::blocks::BlockType;
 
 pub struct VoxelWorld {
     pub world: World,
@@ -33,7 +32,11 @@ impl VoxelWorld {
         self.world.break_block(world_pos)
     }
     
-    pub fn place_block(&mut self, world_pos: (i32, i32, i32), block_type: BlockType) -> bool {
-        self.world.place_block(world_pos, block_type)
+    pub fn place_block(&mut self, world_pos: (i32, i32, i32), block_id: &str) -> bool {
+        self.world.place_block(world_pos, block_id)
+    }
+    
+    pub fn get_block_at(&self, world_pos: (i32, i32, i32)) -> &str {
+        self.world.get_block_at(world_pos)
     }
 }
