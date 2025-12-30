@@ -1,17 +1,14 @@
 use glam::Vec2;
-use voxel_engine::{Engine, ui::{colors, elements::{Rect, Text, containers::Container}, layout::Layout, traits::Element}};
-// use crate::ui::colors::*;
+use voxel_engine::{Engine, ui::*};
 
 pub struct UISystem {
     pub is_open: bool,
-    inventory_ui: Option<Box<dyn Element>>,
 }
 
 impl UISystem {
     pub fn new() -> Self {
         Self {
             is_open: false,
-            inventory_ui: None,
         }
     }
 
@@ -20,98 +17,101 @@ impl UISystem {
     }
 
     pub fn render(&mut self, engine: &mut Engine, player_pos: glam::Vec3, game_state: &crate::game_state::VoxelGameState) {
+        let mut ui = UI::new();
+        
         // Всегда показываем координаты
-        let pos_text = Text::builder("pos_text")
-            .text(format!("x: {:.1} y: {:.1} z: {:.1}", player_pos.x, player_pos.y, player_pos.z))
-            .with_base(|base| base
-                .color(colors::WHITE)
-                .layout(Layout::default())
-                .position(Vec2::new(16.0, 22.0))
-            )
-            .build();
-        engine.renderer.ui.add_element(Box::new(pos_text));
-        // // Показываем информацию о блоке
+        ui = ui.add_widget(Box::new(
+            Text::new(&format!("x: {:.1} y: {:.1} z: {:.1}", player_pos.x, player_pos.y, player_pos.z))
+                .with_style(|s| {
+                    s.position = Vec2::new(16.0, 16.0);
+                    s.color = WHITE;
+                })
+        ));
+        
+        // Показываем информацию о блоке
         let ray_pos = game_state.player.get_camera_position();
         let ray_dir = (game_state.player.get_camera_target() - ray_pos).normalize();
         if let Some(hit) = crate::systems::raycast::Raycast::cast_ray(ray_pos, ray_dir, 10.0, &game_state.world) {
             let block_id = game_state.world.get_block_at(hit.block_pos);
-            let looking_text = Text::builder("looking")
-                .text(format!("Looking at: {} At {:?}", block_id, hit.block_pos))
-                .with_base(|base| base
-                    .color(colors::WHITE)
-                    .layout(Layout::default())
-                    .position(Vec2::new(16.0, 36.0))
-                )
-                .build();
-            engine.renderer.ui.add_element(Box::new(looking_text));
+            ui = ui.add_widget(Box::new(
+                Text::new(&format!("Looking at: {} At {:?}", block_id, hit.block_pos))
+                    .with_style(|s| {
+                        s.position = Vec2::new(16.0, 40.0);
+                        s.color = WHITE;
+                    })
+            ));
             
-            let face_text = Text::builder("face")
-                .text(format!("Face: {:?} Distance: {:.1}", hit.face, hit.distance))
-                .with_base(|base| base
-                    .color(colors::WHITE)
-                    .layout(Layout::default())
-                    .position(Vec2::new(16.0, 60.0))
-                )
-                .build(); 
-            engine.renderer.ui.add_element(Box::new(face_text));
+            ui = ui.add_widget(Box::new(
+                Text::new(&format!("Face: {:?} Distance: {:.1}", hit.face, hit.distance))
+                    .with_style(|s| {
+                        s.position = Vec2::new(16.0, 64.0);
+                        s.color = WHITE;
+                    })
+            ));
         } else {
-            let air_text = Text::builder("air")
-                .text("Lookint at: air".to_string())
-                .with_base(|base| base
-                    .color(colors::WHITE)
-                    .layout(Layout::default())
-                    .position(Vec2::new(16.0, 36.0))
-                )
-                .build();
-            engine.renderer.ui.add_element(Box::new(air_text));
+            ui = ui.add_widget(Box::new(
+                Text::new("Looking at: air")
+                    .with_style(|s| {
+                        s.position = Vec2::new(16.0, 40.0);
+                        s.color = WHITE;
+                    })
+            ));
         }
 
         // Прицел
-        let crosshair = Text::builder("air")
-            .text("+".to_string())
-            .with_base(|base| base
-                .color(colors::WHITE)
-                .layout(Layout::default())
-                .position(Vec2::new(400.0, 300.0))
-            )
-            .build();
-        engine.renderer.ui.add_element(Box::new(crosshair));
+        ui = ui.add_widget(Box::new(
+            Text::new("+")
+                .with_style(|s| {
+                    s.position = Vec2::new(400.0, 300.0);
+                    s.color = WHITE;
+                })
+        ));
+        
         if self.is_open {
-            if self.inventory_ui.is_none() {
-                engine.renderer.ui.add_element(self.create_inventory_ui(&game_state.world.world.registry));
-            }
+            ui = ui.add_widget(Box::new(self.create_inventory_ui()));
         }
+        
+        engine.renderer.ui.set_ui(ui);
     }
     
-    fn create_inventory_ui(&mut self, registry: &crate::common::block_registry::BlockRegistry) -> Box<dyn Element> {
-        // Основной контейнер инвентаря
-        // let mut inventory_container = Container::new("inventory_container", Vec2::new(400.0, 300.0), Vec2::ONE, Layout::default());
-        // inventory_container.add_child(Box::new(Rect::new("inventory_bg", Vec2::ZERO, Vec2::ONE, colors::DARK_GRAY, Layout::default())));
-
-        let inventory = Text::builder("inventory")
-            .text("+".to_string())
-            .with_base(|base| base
-                .color(colors::WHITE)
-                .layout(Layout::default())
-                .position(Vec2::new(400.0, 300.0))
+    fn create_inventory_ui(&mut self) -> Container {
+        Container::new(LayoutType::Vertical { spacing: 10.0 })
+            .with_style(|s| {
+                s.position = Vec2::new(300.0, 200.0);
+                s.size = Vec2::new(400.0, 300.0);
+                s.color = DARK_GRAY;
+                s.padding = Vec2::new(20.0, 20.0);
+            })
+            .add_text(
+                Text::new("Inventory")
+                    .with_style(|s| s.color = WHITE)
+                    .with_scale(2.0)
             )
-            .build();
-        return Box::new(inventory);
+            .add_button(
+                Button::new("Close")
+                    .with_style(|s| {
+                        s.size = Vec2::new(100.0, 30.0);
+                        s.color = RED;
+                    })
+                    .with_text_color(WHITE)
+                    .on_click(|| println!("Close button clicked!"))
+            )
+            .add_container(
+                Container::new(LayoutType::Grid { columns: 4, spacing: 5.0 })
+                    .with_style(|s| {
+                        s.size = Vec2::new(360.0, 200.0);
+                        s.color = GRAY;
+                        s.padding = Vec2::new(10.0, 10.0);
+                    })
+                    .add_button(Button::new("Stone").with_style(|s| s.color = LIGHT_GRAY))
+                    .add_button(Button::new("Dirt").with_style(|s| s.color = BROWN))
+                    .add_button(Button::new("Grass").with_style(|s| s.color = GREEN))
+                    .add_button(Button::new("Wood").with_style(|s| s.color = BROWN))
+            )
     }
     
-    pub fn handle_click(&mut self, pos: Vec2, screen_size: Vec2) {
-        // if !self.is_open {
-        //     return;
-        // }
-        
-        // let screen_pos = pos * screen_size;
-        
-        // if let Some(ref ui) = self.inventory_ui {
-        //     if let Some(clicked_id) = ui.hit_test(screen_pos, Vec2::ZERO) {
-        //         if clicked_id == "close_btn" || clicked_id == "close_text" {
-        //             self.is_open = false;
-        //         }
-        //     }
-        // }
+    pub fn handle_click(&mut self, pos: Vec2, screen_size: Vec2, engine: &mut Engine) {
+        let screen_pos = pos * screen_size;
+        engine.renderer.ui.handle_click(screen_pos);
     }
 }

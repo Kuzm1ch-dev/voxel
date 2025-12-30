@@ -2,6 +2,7 @@ use wgpu::util::DeviceExt;
 use glam::{Vec2, Vec4};
 
 use crate::render::bitmap_font::FONT_DATA;
+use crate::ui::UI;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -42,7 +43,7 @@ impl UIVertex {
 }
 
 pub struct UIRenderer {
-    screen_size: Vec2,
+    pub screen_size: Vec2,
     render_pipeline: wgpu::RenderPipeline,
     texture_pipeline: wgpu::RenderPipeline,
     vertex_buffer: Option<wgpu::Buffer>,
@@ -54,7 +55,7 @@ pub struct UIRenderer {
     texture_vertex_buffer: Option<wgpu::Buffer>,
     texture_index_buffer: Option<wgpu::Buffer>,
     current_texture_bind_group: Option<wgpu::BindGroup>,
-    elements: Vec<Box<dyn crate::ui::traits::Element>>
+    pub ui: Option<UI>,
 }
 
 impl UIRenderer {
@@ -192,8 +193,12 @@ impl UIRenderer {
             texture_vertex_buffer: None,
             texture_index_buffer: None,
             current_texture_bind_group: None,
-            elements: Vec::new()
+            ui: None,
         }
+    }
+
+    pub fn set_ui(&mut self, ui: UI) {
+        self.ui = Some(ui);
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -221,14 +226,12 @@ impl UIRenderer {
             base_index + 2, base_index + 3, base_index,
         ]);
         
-        // Store the bind group for rendering
         self.current_texture_bind_group = Some(bind_group.clone());
     }
     
     pub fn render_rect(&mut self, pos: Vec2, size: Vec2, color: Vec4) {
         let base_index = self.vertices.len() as u16;
         
-        // НОРМАЛИЗУЕМ И ПОЗИЦИЮ И РАЗМЕР
         let norm_pos = Vec2::new(pos.x / self.screen_size.x, pos.y / self.screen_size.y);
         let norm_size = Vec2::new(size.x / self.screen_size.x, size.y / self.screen_size.y);
         
@@ -244,11 +247,14 @@ impl UIRenderer {
     }
 
     pub fn render_text(&mut self, text: &str, pos: Vec2, scale: f32, color: Vec4) {
-        let char_width = 8.0 * scale; // Ширина символа в пикселях
-        let pixel_size = scale;       // Размер пикселя в пикселях
+        // Не рендерим текст если он невидимый
+        if color.w <= 0.0 { return; }
+        
+        let char_width = 8.0 * scale;
+        let pixel_size = scale;
         
         for (i, ch) in text.chars().enumerate() {
-            let char_x = pos.x + i as f32 * char_width; // Пиксельная позиция
+            let char_x = pos.x + i as f32 * char_width;
             
             if ch as u32 >= 32 && ch as u32 <= 126 {
                 let font_index = (ch as u32 - 32) as usize;
@@ -263,7 +269,7 @@ impl UIRenderer {
                                 let pixel_y = pos.y + y as f32 * pixel_size;
                                 self.render_rect(
                                     Vec2::new(pixel_x, pixel_y),
-                                    Vec2::new(pixel_size, pixel_size), // Размер в пикселях
+                                    Vec2::new(pixel_size, pixel_size),
                                     color
                                 );
                             }
@@ -272,9 +278,6 @@ impl UIRenderer {
                 }
             }
         }
-    }
-    pub fn add_element(&mut self, element: Box<dyn crate::ui::traits::Element>){
-        self.elements.push(element);
     }
 
     pub fn update_buffers(&mut self, device: &wgpu::Device) {
@@ -308,14 +311,15 @@ impl UIRenderer {
     }
 
     pub fn render<'a>(&'a mut self, render_pass: &mut wgpu::RenderPass<'a>, device: &wgpu::Device) {
-        // Render regular colored UI elements
         self.clear();
-        let elements = std::mem::take(&mut self.elements);
-        // Рендерим элементы
-        elements.iter().for_each(|element| {
-            element.render(self, Vec2::ZERO);
-        });
+        
+        let ui = self.ui.take();
+        if let Some(ui) = ui {
+            ui.render(self);
+        }
+        
         self.update_buffers(device);
+        
         if let (Some(vertex_buffer), Some(index_buffer)) = (&self.vertex_buffer, &self.index_buffer) {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
@@ -323,7 +327,6 @@ impl UIRenderer {
             render_pass.draw_indexed(0..self.indices.len() as u32, 0, 0..1);
         }
         
-        // Render textured UI elements
         if let (Some(texture_vertex_buffer), Some(texture_index_buffer), Some(bind_group)) = 
             (&self.texture_vertex_buffer, &self.texture_index_buffer, &self.current_texture_bind_group) {
             render_pass.set_pipeline(&self.texture_pipeline);
@@ -331,6 +334,14 @@ impl UIRenderer {
             render_pass.set_vertex_buffer(0, texture_vertex_buffer.slice(..));
             render_pass.set_index_buffer(texture_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..self.texture_indices.len() as u32, 0, 0..1);
+        }
+    }
+
+    pub fn handle_click(&mut self, point: Vec2) -> bool {
+        if let Some(ui) = &self.ui {
+            ui.handle_click(point)
+        } else {
+            false
         }
     }
 }

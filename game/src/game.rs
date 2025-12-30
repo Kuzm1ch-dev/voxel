@@ -84,8 +84,8 @@ impl<'window> ApplicationHandler for Game<'window> {
                 self.window.as_ref().unwrap().request_redraw();
             }
             _ => {
-                if let (Some(game_state), Some(ui_system), Some(input_system)) = 
-                    (self.game_state.as_mut(), self.ui_system.as_mut(), self.input_system.as_ref()) 
+                if let (Some(game_state), Some(ui_system), Some(input_system), Some(engine)) = 
+                    (self.game_state.as_mut(), self.ui_system.as_mut(), self.input_system.as_ref(), self.engine.as_mut()) 
                 {
                     let winit_event = winit::event::Event::WindowEvent {
                         window_id: _window_id,
@@ -93,7 +93,7 @@ impl<'window> ApplicationHandler for Game<'window> {
                     };
                     if let Some(input_event) = voxel_engine::input::process_winit_event(&winit_event) {
                         let screen_size = glam::Vec2::new(800.0, 600.0); // TODO: получать реальный размер
-                        input_system.handle_input(&input_event, game_state, ui_system, screen_size);
+                        input_system.handle_input(&input_event, game_state, ui_system, screen_size, engine);
                     }
                 }
             }
@@ -106,8 +106,8 @@ impl<'window> ApplicationHandler for Game<'window> {
         device_id: winit::event::DeviceId,
         event: winit::event::DeviceEvent,
     ) {
-        if let (Some(game_state), Some(ui_system), Some(input_system)) = 
-            (self.game_state.as_mut(), self.ui_system.as_mut(), self.input_system.as_ref()) 
+        if let (Some(game_state), Some(ui_system), Some(input_system), Some(engine)) = 
+            (self.game_state.as_mut(), self.ui_system.as_mut(), self.input_system.as_ref(), self.engine.as_mut()) 
         {
             let winit_event = winit::event::Event::DeviceEvent {
                 device_id,
@@ -115,7 +115,7 @@ impl<'window> ApplicationHandler for Game<'window> {
             };
             if let Some(input_event) = voxel_engine::input::process_winit_event(&winit_event) {
                 let screen_size = glam::Vec2::new(800.0, 600.0); // TODO: получать реальный размер
-                input_system.handle_input(&input_event, game_state, ui_system, screen_size);
+                input_system.handle_input(&input_event, game_state, ui_system, screen_size, engine);
             }
         }
     }

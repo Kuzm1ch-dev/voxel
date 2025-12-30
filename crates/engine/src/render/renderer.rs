@@ -143,7 +143,6 @@ impl<'window> Renderer<'window> {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            // ui_renderer.clear();
             self.ui.render(&mut ui_render_pass, &self.device);
         }
         
