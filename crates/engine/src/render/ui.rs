@@ -2,7 +2,7 @@ use wgpu::util::DeviceExt;
 use glam::{Vec2, Vec4};
 
 use crate::render::bitmap_font::FONT_DATA;
-use crate::ui::UI;
+use crate::ui::{UI, core::Rect, widgets::Widget};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -313,9 +313,9 @@ impl UIRenderer {
     pub fn render<'a>(&'a mut self, render_pass: &mut wgpu::RenderPass<'a>, device: &wgpu::Device) {
         self.clear();
         
-        let ui = self.ui.take();
-        if let Some(ui) = ui {
+        if let Some(mut ui) = self.ui.take() {
             ui.render(self);
+            self.ui = Some(ui);
         }
         
         self.update_buffers(device);

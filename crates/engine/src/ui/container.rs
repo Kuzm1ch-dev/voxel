@@ -56,17 +56,14 @@ impl Widget for Container {
     fn style(&self) -> &Style { &self.style }
     fn style_mut(&mut self) -> &mut Style { &mut self.style }
 
-    fn render(&self, renderer: &mut crate::UIRenderer, rect: Rect) {
+    fn render(&mut self, renderer: &mut crate::UIRenderer, rect: Rect) {
         if !self.style.visible { return; }
 
-        // Используем calculate_layout для правильного позиционирования
         let layout_rect = calculate_layout(&self.style, rect, Vec2::ZERO);
-        // Рендерим фон контейнера
         if self.style.color.w > 0.0 {
             renderer.render_rect(Vec2::new(layout_rect.x, layout_rect.y), Vec2::new(layout_rect.width, layout_rect.height), self.style.color);
         }
 
-        // Рендерим детей
         let content_rect = Rect::new(
             layout_rect.x + self.style.padding.x,
             layout_rect.y + self.style.padding.y,
@@ -77,94 +74,40 @@ impl Widget for Container {
         self.render_children(renderer, content_rect);
     }
 
-    fn handle_click(&self, point: Vec2, rect: Rect) -> bool {
-        if !self.style.visible || !rect.contains(point) { return false; }
+    fn handle_click(&self, point: Vec2) -> bool {
+        if !self.style.visible { return false; }
 
-        // Используем calculate_layout для правильного позиционирования
-        let layout_rect = calculate_layout(&self.style, rect, Vec2::ZERO);
-        if !layout_rect.contains(point) { return false; }
-
-        let content_rect = Rect::new(
-            layout_rect.x + self.style.padding.x,
-            layout_rect.y + self.style.padding.y,
-            layout_rect.width - self.style.padding.x * 2.0,
-            layout_rect.height - self.style.padding.y * 2.0,
-        );
-
-        self.handle_children_click(point, content_rect)
+        for child in self.children.iter().rev() {
+            if child.handle_click(point) {
+                return true;
+            }
+        }
+        false
     }
 }
 
 impl Container {
-    fn render_children(&self, renderer: &mut crate::UIRenderer, content_rect: Rect) {
+    fn render_children(&mut self, renderer: &mut crate::UIRenderer, content_rect: Rect) {
         match self.layout {
             LayoutType::Vertical { spacing } => {
                 let mut current_y = content_rect.y;
-                for child in &self.children {
+                for child in &mut self.children {
                     let child_height = if child.style().size.y > 0.0 { child.style().size.y } else { 40.0 };
                     let positioned_rect = Rect::new(content_rect.x, current_y, content_rect.width, child_height);
                     child.render(renderer, positioned_rect);
-                    current_y += positioned_rect.height + spacing;
+                    current_y += child_height + spacing;
                 }
             },
             LayoutType::Horizontal { spacing } => {
                 let mut current_x = content_rect.x;
-                for child in &self.children {
+                for child in &mut self.children {
                     let positioned_rect = Rect::new(current_x, content_rect.y, 100.0, content_rect.height);
                     child.render(renderer, positioned_rect);
-                    current_x += positioned_rect.width + spacing;
+                    current_x += 100.0 + spacing;
                 }
             },
             LayoutType::Grid { columns, spacing } => {
-                for (i, child) in self.children.iter().enumerate() {
-                    let row = i / columns;
-                    let col = i % columns;
-                    let cell_width = (content_rect.width - spacing * (columns - 1) as f32) / columns as f32;
-                    let cell_height = 40.0; // Фиксированная высота для сетки
-                    
-                    let cell_rect = Rect::new(
-                        content_rect.x + col as f32 * (cell_width + spacing),
-                        content_rect.y + row as f32 * (cell_height + spacing),
-                        cell_width,
-                        cell_height
-                    );
-                    
-                    child.render(renderer, cell_rect);
-                }
-            },
-            LayoutType::Stack => {
-                for child in &self.children {
-                    child.render(renderer, content_rect);
-                }
-            }
-        }
-    }
-
-    fn handle_children_click(&self, point: Vec2, content_rect: Rect) -> bool {
-        match self.layout {
-            LayoutType::Vertical { spacing } => {
-                let mut current_y = content_rect.y;
-                for child in &self.children {
-                    let child_height = if child.style().size.y > 0.0 { child.style().size.y } else { 40.0 };
-                    let positioned_rect = Rect::new(content_rect.x, current_y, content_rect.width, child_height);
-                    if child.handle_click(point, positioned_rect) {
-                        return true;
-                    }
-                    current_y += positioned_rect.height + spacing;
-                }
-            },
-            LayoutType::Horizontal { spacing } => {
-                let mut current_x = content_rect.x;
-                for child in &self.children {
-                    let positioned_rect = Rect::new(current_x, content_rect.y, 100.0, content_rect.height);
-                    if child.handle_click(point, positioned_rect) {
-                        return true;
-                    }
-                    current_x += positioned_rect.width + spacing;
-                }
-            },
-            LayoutType::Grid { columns, spacing } => {
-                for (i, child) in self.children.iter().enumerate() {
+                for (i, child) in self.children.iter_mut().enumerate() {
                     let row = i / columns;
                     let col = i % columns;
                     let cell_width = (content_rect.width - spacing * (columns - 1) as f32) / columns as f32;
@@ -177,19 +120,15 @@ impl Container {
                         cell_height
                     );
                     
-                    if child.handle_click(point, cell_rect) {
-                        return true;
-                    }
+                    child.render(renderer, cell_rect);
                 }
             },
             LayoutType::Stack => {
-                for child in self.children.iter().rev() {
-                    if child.handle_click(point, content_rect) {
-                        return true;
-                    }
+                for child in &mut self.children {
+                    child.render(renderer, content_rect);
                 }
             }
         }
-        false
     }
+
 }

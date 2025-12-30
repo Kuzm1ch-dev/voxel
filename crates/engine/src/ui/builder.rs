@@ -1,5 +1,5 @@
-use glam::Vec4;
-use crate::ui::{core::*, container::Container, widgets::Widget, LayoutType};
+use glam::{Vec2, Vec4};
+use crate::{UIRenderer, ui::{LayoutType, container::Container, core::*, widgets::Widget}};
 
 pub struct UI {
     pub root: Container,
@@ -21,14 +21,13 @@ impl UI {
         self
     }
 
-    pub fn render(&self, renderer: &mut crate::UIRenderer) {
+    pub fn render(&mut self, renderer: &mut UIRenderer) {
         let screen_rect = Rect::new(0.0, 0.0, renderer.screen_size.x, renderer.screen_size.y);
         self.root.render(renderer, screen_rect);
     }
 
     pub fn handle_click(&self, point: glam::Vec2) -> bool {
-        let screen_rect = Rect::new(0.0, 0.0, 800.0, 600.0); // TODO: получать размер экрана
-        self.root.handle_click(point, screen_rect)
+        self.root.handle_click(point)
     }
 }
 

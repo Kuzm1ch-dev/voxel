@@ -18,7 +18,7 @@ impl InputSystem {
                 }
             }
             InputEvent::MouseButton(button, state) => {
-                if ui_system.is_open && *state == winit::event::ElementState::Pressed {
+                if *state == winit::event::ElementState::Pressed {
                     if let Some(mouse_pos) = game_state.get_mouse_position() {
                         ui_system.handle_click(mouse_pos, screen_size, engine);
                     }

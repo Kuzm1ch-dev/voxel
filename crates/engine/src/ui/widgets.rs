@@ -4,8 +4,8 @@ use crate::ui::core::*;
 pub trait Widget {
     fn style(&self) -> &Style;
     fn style_mut(&mut self) -> &mut Style;
-    fn render(&self, renderer: &mut crate::UIRenderer, rect: Rect);
-    fn handle_click(&self, point: Vec2, rect: Rect) -> bool { false }
+    fn render(&mut self, renderer: &mut crate::UIRenderer, rect: Rect);
+    fn handle_click(&self, point: Vec2) -> bool { false }
     fn content_size(&self) -> Vec2 { Vec2::ZERO }
 }
 
@@ -40,7 +40,7 @@ impl Widget for Text {
     fn style(&self) -> &Style { &self.style }
     fn style_mut(&mut self) -> &mut Style { &mut self.style }
 
-    fn render(&self, renderer: &mut crate::UIRenderer, rect: Rect) {
+    fn render(&mut self, renderer: &mut crate::UIRenderer, rect: Rect) {
         if !self.style.visible || self.style.color.w <= 0.0 { return; }
         let layout_rect = calculate_layout(&self.style, rect, self.content_size());
         renderer.render_text(&self.text, Vec2::new(layout_rect.x, layout_rect.y), self.scale, self.style.color);
@@ -73,7 +73,7 @@ impl Widget for Panel {
     fn style(&self) -> &Style { &self.style }
     fn style_mut(&mut self) -> &mut Style { &mut self.style }
 
-    fn render(&self, renderer: &mut crate::UIRenderer, rect: Rect) {
+    fn render(&mut self, renderer: &mut crate::UIRenderer, rect: Rect) {
         if !self.style.visible { return; }
         let layout_rect = calculate_layout(&self.style, rect, Vec2::ZERO);
         if self.style.color.w > 0.0 {
@@ -88,6 +88,7 @@ pub struct Button {
     pub text_color: Vec4,
     pub scale: f32,
     pub on_click: Option<Box<dyn Fn()>>,
+    pub rect: Rect,
 }
 
 impl Button {
@@ -101,6 +102,7 @@ impl Button {
             text_color: Vec4::new(1.0, 1.0, 1.0, 1.0),
             scale: 1.0,
             on_click: None,
+            rect: Rect::new(0.0, 0.0, 0.0, 0.0),
         }
     }
 
@@ -131,15 +133,14 @@ impl Widget for Button {
     fn style(&self) -> &Style { &self.style }
     fn style_mut(&mut self) -> &mut Style { &mut self.style }
 
-    fn render(&self, renderer: &mut crate::UIRenderer, rect: Rect) {
+    fn render(&mut self, renderer: &mut crate::UIRenderer, rect: Rect) {
         if !self.style.visible { return; }
         
         let layout_rect = calculate_layout(&self.style, rect, self.content_size());
+        self.rect = layout_rect;
         
-        // Рендерим фон
         renderer.render_rect(Vec2::new(layout_rect.x, layout_rect.y), Vec2::new(layout_rect.width, layout_rect.height), self.style.color);
         
-        // Рендерим текст по центру
         let text_size = Vec2::new(self.text.len() as f32 * 8.0 * self.scale, 8.0 * self.scale);
         let text_pos = Vec2::new(
             layout_rect.x + (layout_rect.width - text_size.x) * 0.5,
@@ -148,10 +149,9 @@ impl Widget for Button {
         renderer.render_text(&self.text, text_pos, self.scale, self.text_color);
     }
 
-    fn handle_click(&self, point: Vec2, rect: Rect) -> bool {
+    fn handle_click(&self, point: Vec2) -> bool {
         if !self.style.visible { return false; }
-        let layout_rect = calculate_layout(&self.style, rect, self.content_size());
-        if layout_rect.contains(point) {
+        if self.rect.contains(point) {
             if let Some(ref callback) = self.on_click {
                 callback();
             }
