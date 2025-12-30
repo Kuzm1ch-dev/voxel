@@ -42,7 +42,8 @@ impl Widget for Text {
 
     fn render(&self, renderer: &mut crate::UIRenderer, rect: Rect) {
         if !self.style.visible || self.style.color.w <= 0.0 { return; }
-        renderer.render_text(&self.text, Vec2::new(rect.x, rect.y), self.scale, self.style.color);
+        let layout_rect = calculate_layout(&self.style, rect, self.content_size());
+        renderer.render_text(&self.text, Vec2::new(layout_rect.x, layout_rect.y), self.scale, self.style.color);
     }
 
     fn content_size(&self) -> Vec2 {
@@ -74,8 +75,9 @@ impl Widget for Panel {
 
     fn render(&self, renderer: &mut crate::UIRenderer, rect: Rect) {
         if !self.style.visible { return; }
+        let layout_rect = calculate_layout(&self.style, rect, Vec2::ZERO);
         if self.style.color.w > 0.0 {
-            renderer.render_rect(Vec2::new(rect.x, rect.y), Vec2::new(rect.width, rect.height), self.style.color);
+            renderer.render_rect(Vec2::new(layout_rect.x, layout_rect.y), Vec2::new(layout_rect.width, layout_rect.height), self.style.color);
         }
     }
 }
@@ -132,21 +134,24 @@ impl Widget for Button {
     fn render(&self, renderer: &mut crate::UIRenderer, rect: Rect) {
         if !self.style.visible { return; }
         
+        let layout_rect = calculate_layout(&self.style, rect, self.content_size());
+        
         // Рендерим фон
-        renderer.render_rect(Vec2::new(rect.x, rect.y), Vec2::new(rect.width, rect.height), self.style.color);
+        renderer.render_rect(Vec2::new(layout_rect.x, layout_rect.y), Vec2::new(layout_rect.width, layout_rect.height), self.style.color);
         
         // Рендерим текст по центру
         let text_size = Vec2::new(self.text.len() as f32 * 8.0 * self.scale, 8.0 * self.scale);
         let text_pos = Vec2::new(
-            rect.x + (rect.width - text_size.x) * 0.5,
-            rect.y + (rect.height - text_size.y) * 0.5
+            layout_rect.x + (layout_rect.width - text_size.x) * 0.5,
+            layout_rect.y + (layout_rect.height - text_size.y) * 0.5
         );
         renderer.render_text(&self.text, text_pos, self.scale, self.text_color);
     }
 
     fn handle_click(&self, point: Vec2, rect: Rect) -> bool {
         if !self.style.visible { return false; }
-        if rect.contains(point) {
+        let layout_rect = calculate_layout(&self.style, rect, self.content_size());
+        if layout_rect.contains(point) {
             if let Some(ref callback) = self.on_click {
                 callback();
             }

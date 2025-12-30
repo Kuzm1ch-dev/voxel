@@ -62,8 +62,9 @@ impl UISystem {
         ui = ui.add_widget(Box::new(
             Text::new("+")
                 .with_style(|s| {
-                    s.position = Vec2::new(400.0, 300.0);
+                    s.anchor = Anchor::Center;
                     s.color = WHITE;
+                    s.size = Vec2::new( 0.0, 0.0 )
                 })
         ));
         
@@ -77,7 +78,7 @@ impl UISystem {
     fn create_inventory_ui(&mut self) -> Container {
         Container::new(LayoutType::Vertical { spacing: 10.0 })
             .with_style(|s| {
-                s.position = Vec2::new(300.0, 200.0);
+                s.anchor = Anchor::Center;
                 s.size = Vec2::new(400.0, 600.0);
                 s.color = DARK_GRAY;
                 s.padding = Vec2::new(20.0, 20.0);
@@ -103,10 +104,22 @@ impl UISystem {
                         s.color = GRAY;
                         s.padding = Vec2::new(10.0, 10.0);
                     })
-                    .add_button(Button::new("Stone").with_style(|s| s.color = LIGHT_GRAY))
-                    .add_button(Button::new("Dirt").with_style(|s| s.color = BROWN))
-                    .add_button(Button::new("Grass").with_style(|s| s.color = GREEN))
-                    .add_button(Button::new("Wood").with_style(|s| s.color = BROWN))
+                    .add_button(Button::new("Stone").with_style(|s| {
+                        s.color = LIGHT_GRAY;
+                        s.size_mode = SizeMode::FillParent;
+                    }))
+                    .add_button(Button::new("Dirt").with_style(|s| { 
+                        s.color = BROWN;
+                        s.size_mode = SizeMode::FillParent;
+                    }))
+                    .add_button(Button::new("Grass").with_style(|s| {
+                        s.color = GREEN;
+                        s.size_mode = SizeMode::FillParent;
+                    }))
+                    .add_button(Button::new("Wood").with_style(|s| {
+                        s.color = BROWN;
+                        s.size_mode = SizeMode::FillParent;
+                    }))
             )
     }
     

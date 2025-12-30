@@ -59,17 +59,19 @@ impl Widget for Container {
     fn render(&self, renderer: &mut crate::UIRenderer, rect: Rect) {
         if !self.style.visible { return; }
 
+        // Используем calculate_layout для правильного позиционирования
+        let layout_rect = calculate_layout(&self.style, rect, Vec2::ZERO);
         // Рендерим фон контейнера
         if self.style.color.w > 0.0 {
-            renderer.render_rect(Vec2::new(rect.x, rect.y), Vec2::new(rect.width, rect.height), self.style.color);
+            renderer.render_rect(Vec2::new(layout_rect.x, layout_rect.y), Vec2::new(layout_rect.width, layout_rect.height), self.style.color);
         }
 
         // Рендерим детей
         let content_rect = Rect::new(
-            rect.x + self.style.padding.x,
-            rect.y + self.style.padding.y,
-            rect.width - self.style.padding.x * 2.0,
-            rect.height - self.style.padding.y * 2.0,
+            layout_rect.x + self.style.padding.x,
+            layout_rect.y + self.style.padding.y,
+            layout_rect.width - self.style.padding.x * 2.0,
+            layout_rect.height - self.style.padding.y * 2.0,
         );
 
         self.render_children(renderer, content_rect);
@@ -78,11 +80,15 @@ impl Widget for Container {
     fn handle_click(&self, point: Vec2, rect: Rect) -> bool {
         if !self.style.visible || !rect.contains(point) { return false; }
 
+        // Используем calculate_layout для правильного позиционирования
+        let layout_rect = calculate_layout(&self.style, rect, Vec2::ZERO);
+        if !layout_rect.contains(point) { return false; }
+
         let content_rect = Rect::new(
-            rect.x + self.style.padding.x,
-            rect.y + self.style.padding.y,
-            rect.width - self.style.padding.x * 2.0,
-            rect.height - self.style.padding.y * 2.0,
+            layout_rect.x + self.style.padding.x,
+            layout_rect.y + self.style.padding.y,
+            layout_rect.width - self.style.padding.x * 2.0,
+            layout_rect.height - self.style.padding.y * 2.0,
         );
 
         self.handle_children_click(point, content_rect)
@@ -128,13 +134,7 @@ impl Container {
             },
             LayoutType::Stack => {
                 for child in &self.children {
-                    let child_rect = Rect::new(
-                        content_rect.x + child.style().position.x,
-                        content_rect.y + child.style().position.y,
-                        child.style().size.x,
-                        child.style().size.y
-                    );
-                    child.render(renderer, child_rect);
+                    child.render(renderer, content_rect);
                 }
             }
         }
@@ -184,13 +184,7 @@ impl Container {
             },
             LayoutType::Stack => {
                 for child in self.children.iter().rev() {
-                    let child_rect = Rect::new(
-                        content_rect.x + child.style().position.x,
-                        content_rect.y + child.style().position.y,
-                        child.style().size.x,
-                        child.style().size.y
-                    );
-                    if child.handle_click(point, child_rect) {
+                    if child.handle_click(point, content_rect) {
                         return true;
                     }
                 }

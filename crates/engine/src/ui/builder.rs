@@ -11,6 +11,7 @@ impl UI {
             root: Container::new(LayoutType::Stack)
                 .with_style(|s| {
                     s.color = Vec4::new(0.0, 0.0, 0.0, 0.0); // Прозрачный фон
+                    s.size_mode = SizeMode::FillParent;
                 }),
         }
     }

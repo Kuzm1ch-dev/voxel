@@ -15,8 +15,8 @@ pub enum Anchor {
 
 #[derive(Debug, Clone, Copy)]
 pub enum SizeMode {
-    Fixed(Vec2),
-    Relative(Vec2),
+    Fixed,
+    Relative,
     FillParent,
     FitContent,
 }
@@ -39,7 +39,7 @@ impl Default for Style {
             position: Vec2::ZERO,
             size: Vec2::new(100.0, 50.0),
             anchor: Anchor::TopLeft,
-            size_mode: SizeMode::Fixed(Vec2::new(100.0, 50.0)),
+            size_mode: SizeMode::Fixed,
             margin: Vec2::ZERO,
             padding: Vec2::ZERO,
             color: Vec4::new(1.0, 1.0, 1.0, 1.0),
@@ -70,19 +70,20 @@ impl Rect {
 pub fn calculate_layout(style: &Style, parent_rect: Rect, content_size: Vec2) -> Rect {
     // Вычисляем размер
     let size = match style.size_mode {
-        SizeMode::Fixed(s) => s,
-        SizeMode::Relative(ratio) => Vec2::new(parent_rect.width * ratio.x, parent_rect.height * ratio.y),
+        SizeMode::Fixed => style.size,
+        SizeMode::Relative => Vec2::new(parent_rect.width * style.size.x, parent_rect.height * style.size.y),
         SizeMode::FillParent => Vec2::new(parent_rect.width - style.margin.x * 2.0, parent_rect.height - style.margin.y * 2.0),
         SizeMode::FitContent => content_size + style.padding * 2.0,
     };
-
     // Вычисляем позицию якоря в родителе
     let anchor_pos = match style.anchor {
         Anchor::TopLeft => Vec2::new(parent_rect.x, parent_rect.y),
         Anchor::TopCenter => Vec2::new(parent_rect.x + parent_rect.width * 0.5, parent_rect.y),
         Anchor::TopRight => Vec2::new(parent_rect.x + parent_rect.width, parent_rect.y),
         Anchor::CenterLeft => Vec2::new(parent_rect.x, parent_rect.y + parent_rect.height * 0.5),
-        Anchor::Center => Vec2::new(parent_rect.x + parent_rect.width * 0.5, parent_rect.y + parent_rect.height * 0.5),
+        Anchor::Center => {
+            Vec2::new(parent_rect.x + parent_rect.width * 0.5, parent_rect.y + parent_rect.height * 0.5)
+        },
         Anchor::CenterRight => Vec2::new(parent_rect.x + parent_rect.width, parent_rect.y + parent_rect.height * 0.5),
         Anchor::BottomLeft => Vec2::new(parent_rect.x, parent_rect.y + parent_rect.height),
         Anchor::BottomCenter => Vec2::new(parent_rect.x + parent_rect.width * 0.5, parent_rect.y + parent_rect.height),
@@ -101,8 +102,6 @@ pub fn calculate_layout(style: &Style, parent_rect: Rect, content_size: Vec2) ->
         Anchor::BottomCenter => Vec2::new(size.x * 0.5, size.y),
         Anchor::BottomRight => size,
     };
-
     let final_pos = anchor_pos + style.position + style.margin - element_anchor_offset;
-
     Rect::new(final_pos.x, final_pos.y, size.x, size.y)
 }
