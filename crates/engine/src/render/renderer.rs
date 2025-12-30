@@ -158,14 +158,14 @@ impl<'window> Renderer<'window> {
 
     pub fn update_texture_layer(&mut self, layer: u32, rgba_data: &[u8], dimensions: (u32, u32)) {
         self.queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &self.texture_array,
                 mip_level: 0,
                 origin: wgpu::Origin3d { x: 0, y: 0, z: layer },
                 aspect: wgpu::TextureAspect::All,
             },
             rgba_data,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * dimensions.0),
                 rows_per_image: Some(dimensions.1),
