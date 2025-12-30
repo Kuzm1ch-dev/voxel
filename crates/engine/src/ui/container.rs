@@ -95,7 +95,8 @@ impl Container {
             LayoutType::Vertical { spacing } => {
                 let mut current_y = content_rect.y;
                 for child in &self.children {
-                    let positioned_rect = Rect::new(content_rect.x, current_y, content_rect.width, 40.0);
+                    let child_height = if child.style().size.y > 0.0 { child.style().size.y } else { 40.0 };
+                    let positioned_rect = Rect::new(content_rect.x, current_y, content_rect.width, child_height);
                     child.render(renderer, positioned_rect);
                     current_y += positioned_rect.height + spacing;
                 }
@@ -144,7 +145,8 @@ impl Container {
             LayoutType::Vertical { spacing } => {
                 let mut current_y = content_rect.y;
                 for child in &self.children {
-                    let positioned_rect = Rect::new(content_rect.x, current_y, content_rect.width, 40.0);
+                    let child_height = if child.style().size.y > 0.0 { child.style().size.y } else { 40.0 };
+                    let positioned_rect = Rect::new(content_rect.x, current_y, content_rect.width, child_height);
                     if child.handle_click(point, positioned_rect) {
                         return true;
                     }

@@ -78,7 +78,7 @@ impl UISystem {
         Container::new(LayoutType::Vertical { spacing: 10.0 })
             .with_style(|s| {
                 s.position = Vec2::new(300.0, 200.0);
-                s.size = Vec2::new(400.0, 300.0);
+                s.size = Vec2::new(400.0, 600.0);
                 s.color = DARK_GRAY;
                 s.padding = Vec2::new(20.0, 20.0);
             })
@@ -99,7 +99,7 @@ impl UISystem {
             .add_container(
                 Container::new(LayoutType::Grid { columns: 4, spacing: 5.0 })
                     .with_style(|s| {
-                        s.size = Vec2::new(360.0, 200.0);
+                        s.size = Vec2::new(360.0, 100.0);
                         s.color = GRAY;
                         s.padding = Vec2::new(10.0, 10.0);
                     })
