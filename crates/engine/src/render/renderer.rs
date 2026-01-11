@@ -2,7 +2,7 @@ use std::sync::Arc;
 use winit::window::Window;
 use glam::{Mat4, Vec2, Vec3};
 use wgpu::util::DeviceExt;
-use crate::{UIRenderer, model::vertex::Vertex};
+use crate::{UIRenderer, model::vertex::Vertex, render::texture_manager::TextureManager};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -30,6 +30,7 @@ struct LightUniform {
 
 pub struct Renderer<'window> {
     pub ui: UIRenderer,
+    pub texture_manager: TextureManager,
     surface: wgpu::Surface<'window>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
@@ -45,15 +46,14 @@ pub struct Renderer<'window> {
     light_buffer: wgpu::Buffer,
     light_bind_group: wgpu::BindGroup,
     shadow_bind_group: wgpu::BindGroup,
-    texture_array: wgpu::Texture,
     texture_bind_group: wgpu::BindGroup,
     depth_texture: wgpu::Texture,
     depth_view: wgpu::TextureView,
 }
 
 impl<'window> Renderer<'window> {
-    pub fn new(window: Arc<Window>, texture_paths: &[String]) -> Self {
-        pollster::block_on(Self::new_async(window, texture_paths))
+    pub fn new(window: Arc<Window>) -> Self {
+        pollster::block_on(Self::new_async(window))
     }
 
     pub fn get_device(&self) -> &wgpu::Device {
@@ -156,26 +156,8 @@ impl<'window> Renderer<'window> {
         self.meshes.clear();
     }
 
-    pub fn update_texture_layer(&mut self, layer: u32, rgba_data: &[u8], dimensions: (u32, u32)) {
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.texture_array,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x: 0, y: 0, z: layer },
-                aspect: wgpu::TextureAspect::All,
-            },
-            rgba_data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * dimensions.0),
-                rows_per_image: Some(dimensions.1),
-            },
-            wgpu::Extent3d {
-                width: dimensions.0,
-                height: dimensions.1,
-                depth_or_array_layers: 1,
-            },
-        );
+    pub fn add_texture(&mut self, path: &String) {
+        self.texture_manager.add_texture(path);
     }
 
     pub fn add_mesh(&mut self, vertices: &[u8], indices: &[u16]) {
@@ -198,7 +180,7 @@ impl<'window> Renderer<'window> {
         });
     }
 
-    async fn new_async(window: Arc<Window>, texture_paths: &[String]) -> Self {
+    async fn new_async(window: Arc<Window>) -> Self {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::DX12,
             flags: wgpu::InstanceFlags::all(),
@@ -227,13 +209,15 @@ impl<'window> Renderer<'window> {
             )
             .await
             .expect("Failed to create device");
-            
+        let arc_device = Arc::new(device);
+        let arc_queue = Arc::new(queue);
+
         let size = window.inner_size();
         let config = surface.get_default_config(&adapter, size.width, size.height).unwrap();
-        surface.configure(&device, &config);
+        surface.configure(&arc_device, &config);
         
         // Create simple render pipeline
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = arc_device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
         });
@@ -245,13 +229,13 @@ impl<'window> Renderer<'window> {
             _padding: 0.0,
         };
         
-        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let camera_buffer = arc_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
             contents: bytemuck::cast_slice(&[camera_uniform]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         
-        let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let camera_bind_group_layout = arc_device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
@@ -265,7 +249,7 @@ impl<'window> Renderer<'window> {
             label: Some("camera_bind_group_layout"),
         });
         
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let camera_bind_group = arc_device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &camera_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -281,13 +265,13 @@ impl<'window> Renderer<'window> {
             view_proj: Mat4::IDENTITY.to_cols_array_2d(),
         };
         
-        let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let light_buffer = arc_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Light Buffer"),
             contents: bytemuck::cast_slice(&[light_uniform]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         
-        let light_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let light_bind_group_layout = arc_device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
@@ -301,7 +285,7 @@ impl<'window> Renderer<'window> {
             label: Some("light_bind_group_layout"),
         });
         
-        let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let light_bind_group = arc_device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &light_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -311,7 +295,7 @@ impl<'window> Renderer<'window> {
         });
         
         // Create dummy shadow texture
-        let shadow_texture = device.create_texture(&wgpu::TextureDescriptor {
+        let shadow_texture = arc_device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Shadow Texture"),
             size: wgpu::Extent3d { width: 1024, height: 1024, depth_or_array_layers: 1 },
             mip_level_count: 1,
@@ -323,7 +307,7 @@ impl<'window> Renderer<'window> {
         });
         
         let shadow_view = shadow_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        let shadow_sampler = arc_device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Shadow Sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -335,7 +319,7 @@ impl<'window> Renderer<'window> {
             ..Default::default()
         });
         
-        let shadow_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let shadow_bind_group_layout = arc_device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -357,7 +341,7 @@ impl<'window> Renderer<'window> {
             label: Some("shadow_bind_group_layout"),
         });
         
-        let shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let shadow_bind_group = arc_device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &shadow_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -373,12 +357,11 @@ impl<'window> Renderer<'window> {
         });
         
         // Use TextureManager to load textures
-        let texture_manager = crate::render::texture_manager::TextureManager::new(&device, &queue, texture_paths);
-        let texture_array = texture_manager.texture_array;
-        let texture_view = texture_manager.texture_view;
-        let texture_sampler = texture_manager.sampler;
+        let texture_manager = TextureManager::new(arc_device.clone(), arc_queue.clone(), 256);
+        let texture_view = texture_manager.get_texture_view();
+        let texture_sampler = texture_manager.get_sampler();
         
-        let texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let texture_bind_group_layout = arc_device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -400,7 +383,7 @@ impl<'window> Renderer<'window> {
             label: Some("texture_bind_group_layout"),
         });
         
-        let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let texture_bind_group = arc_device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &texture_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -415,14 +398,14 @@ impl<'window> Renderer<'window> {
             label: Some("texture_bind_group"),
         });
         
-        let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let render_pipeline_layout = arc_device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
             bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout, &shadow_bind_group_layout, &texture_bind_group_layout],
             push_constant_ranges: &[],
         });
         
         // Create depth texture
-        let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+        let depth_texture = arc_device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Depth Texture"),
             size: wgpu::Extent3d { width: size.width, height: size.height, depth_or_array_layers: 1 },
             mip_level_count: 1,
@@ -435,7 +418,7 @@ impl<'window> Renderer<'window> {
         
         let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
         
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let render_pipeline = arc_device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
@@ -478,12 +461,13 @@ impl<'window> Renderer<'window> {
             multiview: None,
             cache: None,
         });
-        let ui_renderer = UIRenderer::new(&device, config.format);
+        let ui_renderer = UIRenderer::new(&arc_device, config.format);
         Self {
             ui: ui_renderer,
+            texture_manager,
             surface,
-            device: Arc::new(device),
-            queue: Arc::new(queue),
+            device: arc_device,
+            queue: arc_queue,
             config,
             camera_position: Vec3::ZERO,
             camera_target: Vec3::new(0.0, 0.0, -1.0),
@@ -496,7 +480,6 @@ impl<'window> Renderer<'window> {
             light_buffer,
             light_bind_group,
             shadow_bind_group,
-            texture_array,
             texture_bind_group,
             depth_texture,
             depth_view,

@@ -31,14 +31,16 @@ impl<'window> ApplicationHandler for Game<'window> {
             self.window = Some(window.clone());
             
             let game_state = VoxelGameState::new();
-            let texture_paths = game_state.world.world.registry.get_texture_paths();
-            let mut engine = Engine::new(window.clone(), texture_paths);
+            let mut engine = Engine::new(window.clone());
+            for (path) in game_state.world.world.registry.get_texture_paths().iter(){
+                engine.renderer.add_texture(path);
+            }
             engine.lock_cursor();
             
             // Load block textures for UI
-            for path in texture_paths {
-                engine.load_ui_texture(path);
-            }
+            // for path in texture_paths {
+            //     engine.load_ui_texture(path);
+            // }
             
             self.engine = Some(engine);
             self.game_state = Some(game_state);

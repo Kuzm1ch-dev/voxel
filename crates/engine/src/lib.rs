@@ -28,9 +28,9 @@ pub struct Engine<'window> {
 
 impl<'window> Engine<'window> {
    
-    pub fn new(window: Arc<Window>, texture_paths: &[String]) -> Self {
+    pub fn new(window: Arc<Window>) -> Self {
         Logger::info("Initializing engine with textures");
-        let renderer = Renderer::new(window.clone(), texture_paths);
+        let renderer = Renderer::new(window.clone());
         let image_renderer = ImageRenderer::new(renderer.get_device(), renderer.get_surface_format());
         let cursor_manager = CursorManager::new();
         
