@@ -16,7 +16,7 @@ impl UISystem {
         self.is_open = !self.is_open;
     }
 
-    pub fn render(&mut self, engine: &mut Engine, player_pos: glam::Vec3, game_state: &crate::game_state::VoxelGameState) {
+    pub fn render(&mut self, engine: &mut Engine, player_pos: glam::Vec3, game_state: &crate::game_state::GameState) {
         let mut ui = UI::new();
         
         // Всегда показываем координаты

@@ -46,6 +46,16 @@ impl BlockRegistry {
         self.blocks.get(id).map(|b| b.as_ref())
     }
     
+    pub fn create_block(&self, id: &str) -> Option<Box<dyn Block>> {
+        match id {
+            "air" => Some(Box::new(AirBlock)),
+            "stone" => Some(Box::new(StoneBlock)),
+            "dirt" => Some(Box::new(DirtBlock)),
+            "grass" => Some(Box::new(GrassBlock)),
+            _ => None,
+        }
+    }
+    
     pub fn get_texture_index(&self, block_id: &str) -> u32 {
         self.texture_indices.get(block_id).copied().unwrap_or(0)
     }

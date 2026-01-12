@@ -1,192 +1,111 @@
-use std::{
-    array, collections::HashSet, path::Path, sync::{Arc, Mutex, RwLock}
-};
+use voxel_engine::Engine;
+use voxel_engine::Vertex;
+use std::collections::HashMap;
+use crate::common::block_registry::BlockRegistry;
+use crate::world::chunk::CHUNK_HEIGHT;
+use crate::world::chunk::CHUNK_SIZE;
+use crate::world::chunk::Chunk;
 
-use glam::IVec3;
-use noise::{NoiseFn, Perlin};
-use wgpu::{naga::Block, BindGroupLayout, Device, Queue};
-
-use crate::{
-    render::{camera::Camera, profiler::{ProfileScope, Profiler}},
-    world::{
-        block::BlockType,
-        chunk::{Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z},
-    },
-    traits::WorldGenerator,
-};
-
-use super::{
-    block::BlockTextures,
-    block_registry::{self, BlockRegistry},
-    chunk::{self}, chunk_manager::ChunkManager,
-};
 
 pub struct World {
-    pub block_registry: Arc<RwLock<BlockRegistry>>,
-    chunk_manager: ChunkManager,
+    pub chunks: HashMap<(i32, i32), Chunk>,
+    pub registry: BlockRegistry,
 }
 
 impl World {
-    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
-        let block_registry = BlockRegistry::new(&device);
-        let _block_registry = Arc::new(RwLock::new(block_registry));
-        Self {
-            block_registry: _block_registry.clone(),
-            chunk_manager: ChunkManager::new(device, queue, _block_registry),
-        }
-    }
-
-    pub fn get_device(&self) -> &wgpu::Device {
-        &self.chunk_manager.device
-    }
-
-    pub fn generate_chunks_with(&mut self, generator: &dyn WorldGenerator, player_pos: glam::IVec3) {
-        // Простая логика генерации чанков вокруг игрока
-        let chunk_pos = Chunk::get_chunk_position(player_pos);
+    pub fn new() -> Self {
+        let registry = BlockRegistry::new();
+        let mut world = Self {
+            chunks: HashMap::new(),
+            registry,
+        };
         
-        for x in -2..=2 {
-            for z in -2..=2 {
-                for y in -1..=3 {
-                    let pos = chunk_pos + glam::IVec3::new(x, y, z);
-                    if self.chunk_manager.get_chunk(pos).is_none() {
-                        let chunk = generator.generate_chunk(pos);
-                        self.chunk_manager.add_chunk(pos, chunk);
-                    }
-                }
+        // Generate chunks around origin
+        for x in -1..=1 {
+            for z in -1..=1 {
+                let chunk = Chunk::new(x, z, &world.registry);
+                world.chunks.insert((x, z), chunk);
+            }
+        }
+        
+        world
+    }
+    
+    pub fn render(&mut self, engine: &mut Engine) {
+        engine.renderer.clear_meshes();
+        
+        // Regenerate meshes for dirty chunks
+        for chunk in self.get_chunks_mut().values_mut() {
+            // Chunk regenerates mesh automatically in set_block
+        }
+        
+        for chunk in self.get_chunks().values() {
+            if !chunk.vertices.is_empty() {
+                let vertex_data = bytemuck::cast_slice(&chunk.vertices);
+                engine.renderer.add_mesh(vertex_data, &chunk.indices);
             }
         }
     }
 
-    pub fn register_blocks(&mut self, device: &Device, queue: &Queue) {
-        let mut block_registry_lock = self.block_registry.write().unwrap();
-        let _ = block_registry_lock.register_block(
-            &device,
-            &queue,
-            "grass",
-            BlockTextures::uniform("grass".to_string()),
-            Path::new("assets/textures/blocks"),
-        );
-        let _ = block_registry_lock.register_block(
-            &device,
-            &queue,
-            "dirt",
-            BlockTextures::uniform("dirt".to_string()),
-            Path::new("assets/textures/blocks"),
-        );
-        let _ = block_registry_lock.register_block(
-            &device,
-            &queue,
-            "stone",
-            BlockTextures::new(
-                "stone_u".to_string(),
-                "stone_b".to_string(),
-                "stone_n".to_string(),
-                "stone_s".to_string(),
-                "stone_w".to_string(),
-                "stone_e".to_string(),
-            ),
-            Path::new("assets/textures/blocks"),
-        );
+
+    pub fn get_chunks(&self) -> &HashMap<(i32, i32), Chunk> {
+        &self.chunks
     }
-
-    pub fn get_chunk_manager(&self) -> &ChunkManager {
-        &self.chunk_manager
+    
+    pub fn get_chunks_mut(&mut self) -> &mut HashMap<(i32, i32), Chunk> {
+        &mut self.chunks
     }
-
-    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera: &mut Camera) {
-        self.chunk_manager.render(render_pass, camera);
-    }
-
-    pub fn process_mesh_updates(&mut self, profiler: &mut Profiler) {
-        self.chunk_manager.process_mesh_updates(profiler);
-    }
-
-    pub fn update_visible_chunks(&mut self, camera_position: IVec3){
-        self.chunk_manager.update_visible_chunks(camera_position);
-    }
-
-    pub fn remove_block(&mut self, block_pos: IVec3) {
-        let chunk_pos = Chunk::get_chunk_position(block_pos);
-        let block_pos = Chunk::get_block_position(block_pos);
-        let chunk = self.chunk_manager.get_chunk(chunk_pos);
-        if let Some(chunk) = chunk {
-            let mut chunk_lock = chunk.lock().unwrap();
-            chunk_lock.set_block(
-                block_pos.x as usize,
-                block_pos.y as usize,
-                block_pos.z as usize,
-                None,
-            );
-        }
-        self.chunk_manager.update_chunk_by_pos(chunk_pos);
-    }
-
-    pub fn break_block_in_chunk(&mut self, block_pos: IVec3, chunk_pos: IVec3) {
-        let chunk = self.chunk_manager.get_chunk(chunk_pos);
-        if let Some(chunk) = chunk {
-            let mut chunk_lock = chunk.lock().unwrap();
-            chunk_lock.set_block(
-                block_pos.x as usize,
-                block_pos.y as usize,
-                block_pos.z as usize,
-                None,
-            );
-        }
-        self.chunk_manager.update_chunk_by_pos(chunk_pos);
-    }
-
-    pub fn place_block_in_chunk(&mut self, block_pos: IVec3, chunk_pos: IVec3, block_type: BlockType) {
-        let chunk = self.chunk_manager.get_chunk(chunk_pos);
-        if let Some(chunk) = chunk {
-            let mut chunk_lock = chunk.lock().unwrap();
-            chunk_lock.set_block(
-                block_pos.x as usize,
-                block_pos.y as usize,
-                block_pos.z as usize,
-                Some(block_type),
-            );
-        }
-        self.chunk_manager.update_chunk_by_pos(chunk_pos);
-    }
-
-    pub fn ray_cast(
-        &mut self,
-        from: glam::Vec3,
-        direction: glam::Vec3,
-        distance: f32,
-    ) -> Option<(IVec3,IVec3, IVec3, IVec3, BlockType)> {
-        let mut last_pos = from;
-        let mut current_pos = from;
-        let target = from + direction * distance;
-        while current_pos.distance(target) > 0.05 {
-            let block_pos_w = current_pos.floor().as_ivec3();
-            let block_pos = Chunk::get_block_position(block_pos_w);
-            let chunk_pos = Chunk::get_chunk_position(block_pos_w);
-            let chunk = self.chunk_manager.get_chunk(chunk_pos);
-            if let Some(chunk) = chunk {
-                let chunk_lock = chunk.lock().unwrap();
-                let block = chunk_lock.get_block(
-                    block_pos.x as usize,
-                    block_pos.y as usize,
-                    block_pos.z as usize,
-                );
-
-                let diff = current_pos - last_pos;
-                let normal = if diff.x.abs() > diff.y.abs() && diff.x.abs() > diff.z.abs() {
-                    IVec3::new(diff.x.signum() as i32, 0, 0)
-                } else if diff.y.abs() > diff.x.abs() && diff.y.abs() > diff.z.abs() {
-                    IVec3::new(0, diff.y.signum() as i32, 0)  
-                } else {
-                    IVec3::new(0, 0, diff.z.signum() as i32)
-                }; 
-
-                if let Some(block) = block {
-                    return Some((block_pos_w, block_pos, chunk_pos, normal,block.clone()));
-                }
+    
+    pub fn break_block(&mut self, world_pos: (i32, i32, i32)) -> bool {
+        let (world_x, world_y, world_z) = world_pos;
+        let chunk_x = world_x.div_euclid(CHUNK_SIZE as i32);
+        let chunk_z = world_z.div_euclid(CHUNK_SIZE as i32);
+        let local_x = world_x.rem_euclid(CHUNK_SIZE as i32) as usize;
+        let local_y = world_y as usize;
+        let local_z = world_z.rem_euclid(CHUNK_SIZE as i32) as usize;
+        
+        if let Some(chunk) = self.chunks.get_mut(&(chunk_x, chunk_z)) {
+            if local_y < CHUNK_HEIGHT && chunk.blocks[local_x][local_y][local_z].is_some() {
+                chunk.set_block(local_x, local_y, local_z, "air", &self.registry);
+                return true;
             }
-            last_pos = current_pos;
-            current_pos += direction * 0.01;
         }
-        None
+        false
+    }
+    
+    pub fn place_block(&mut self, world_pos: (i32, i32, i32), block_name: &str) -> bool {
+        let (world_x, world_y, world_z) = world_pos;
+        let chunk_x = world_x.div_euclid(CHUNK_SIZE as i32);
+        let chunk_z = world_z.div_euclid(CHUNK_SIZE as i32);
+        let local_x = world_x.rem_euclid(CHUNK_SIZE as i32) as usize;
+        let local_y = world_y as usize;
+        let local_z = world_z.rem_euclid(CHUNK_SIZE as i32) as usize;
+        
+        if let Some(chunk) = self.chunks.get_mut(&(chunk_x, chunk_z)) {
+            if local_y < CHUNK_HEIGHT && chunk.blocks[local_x][local_y][local_z].is_none() {
+                chunk.set_block(local_x, local_y, local_z, block_name, &self.registry);
+                return true;
+            }
+        }
+        false
+    }
+    
+    pub fn get_block_at(&self, world_pos: (i32, i32, i32)) -> &str {
+        let (world_x, world_y, world_z) = world_pos;
+        let chunk_x = world_x.div_euclid(CHUNK_SIZE as i32);
+        let chunk_z = world_z.div_euclid(CHUNK_SIZE as i32);
+        let local_x = world_x.rem_euclid(CHUNK_SIZE as i32) as usize;
+        let local_y = world_y as usize;
+        let local_z = world_z.rem_euclid(CHUNK_SIZE as i32) as usize;
+        
+        if let Some(chunk) = self.chunks.get(&(chunk_x, chunk_z)) {
+            if local_y < CHUNK_HEIGHT {
+                return match &chunk.blocks[local_x][local_y][local_z] {
+                    Some(block) => block.get_name(),
+                    None => "air",
+                };
+            }
+        }
+        "air"
     }
 }

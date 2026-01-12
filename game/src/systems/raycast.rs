@@ -1,5 +1,5 @@
 use glam::Vec3;
-use crate::voxel_world::VoxelWorld;
+use crate::world::world::World;
 
 #[derive(Debug, Clone, Copy)]
 pub enum BlockFace {
@@ -23,7 +23,7 @@ pub struct RaycastHit {
 pub struct Raycast;
 
 impl Raycast {
-    pub fn cast_ray(origin: Vec3, direction: Vec3, max_distance: f32, world: &VoxelWorld) -> Option<RaycastHit> {
+    pub fn cast_ray(origin: Vec3, direction: Vec3, max_distance: f32, world: &World) -> Option<RaycastHit> {
         let mut current_pos = origin;
         let step = direction.normalize() * 0.1;
         let mut distance = 0.0;

@@ -4,6 +4,9 @@ pub mod model;
 pub mod cursor;
 pub mod logger;
 pub mod ui;
+pub mod app;
+pub mod app_runner;
+pub mod runner;
 
 pub use render::renderer::Renderer;
 pub use render::ui::UIRenderer;
@@ -11,6 +14,8 @@ pub use render::image::ImageRenderer;
 pub use input::InputEvent;
 pub use model::vertex::Vertex;
 pub use cursor::CursorManager;
+pub use app::GameApp;
+pub use runner::run_app;
 
 use crate::logger::Logger;
 

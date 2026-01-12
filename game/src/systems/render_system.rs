@@ -1,5 +1,5 @@
 use voxel_engine::Engine;
-use crate::{game_state::VoxelGameState, systems::ui_system::UISystem};
+use crate::{game_state::GameState, systems::ui_system::UISystem};
 pub struct RenderSystem;
 
 impl RenderSystem {
@@ -7,7 +7,7 @@ impl RenderSystem {
         Self
     }
 
-    pub fn render(&self, engine: &mut Engine, game_state: &mut VoxelGameState, ui_system: &mut UISystem) -> Result<(), wgpu::SurfaceError> {
+    pub fn render(&self, engine: &mut Engine, game_state: &mut GameState, ui_system: &mut UISystem) -> Result<(), wgpu::SurfaceError> {
         // Update camera
         let player = &game_state.player;
         engine.update_camera(

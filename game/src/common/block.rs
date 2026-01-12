@@ -1,3 +1,4 @@
+
 pub trait Block {
     fn get_id(&self) -> &'static str;
     fn get_name(&self) -> &'static str;

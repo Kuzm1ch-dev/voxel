@@ -1,23 +1,23 @@
 use glam::Vec3;
 use voxel_engine::InputEvent;
 use crate::player::GamePlayer;
-use crate::voxel_world::VoxelWorld;
 use crate::systems::raycast::Raycast;
+use crate::world::world::World;
 use std::collections::HashSet;
 use winit::keyboard::KeyCode;
 
-pub struct VoxelGameState {
+pub struct GameState {
     pub player: GamePlayer,
-    pub world: VoxelWorld,
+    pub world: World,
     pressed_keys: HashSet<KeyCode>,
     mouse_position: Option<glam::Vec2>,
 }
 
-impl VoxelGameState {
+impl GameState {
     pub fn new() -> Self {
         Self {
-            player: GamePlayer::new(Vec3::new(0.0, 0.0, 5.0)),
-            world: VoxelWorld::new(),
+            player: GamePlayer::new(Vec3::new(0.0, 38.0, 0.0)),
+            world: World::new(),
             pressed_keys: HashSet::new(),
             mouse_position: None,
         }
