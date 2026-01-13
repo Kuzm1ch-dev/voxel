@@ -9,7 +9,7 @@ impl InputSystem {
         Self
     }
 
-    pub fn handle_input(&self, input: &InputEvent, game_state: &mut GameState, ui_system: &mut UISystem, screen_size: glam::Vec2, engine: &mut Engine) {
+    pub fn handle_input(&self, input: &InputEvent, game_state: &mut GameState, ui_system: &mut UISystem, engine: &mut Engine) {
         match input {
             InputEvent::KeyPressed(key) => {
                 if *key == KeyCode::KeyI {
@@ -19,7 +19,7 @@ impl InputSystem {
             InputEvent::MouseButton(button, state) => {
                 if *state == winit::event::ElementState::Pressed {
                     if let Some(mouse_pos) = game_state.get_mouse_position() {
-                        ui_system.handle_click(mouse_pos, screen_size, engine);
+                        ui_system.handle_click(mouse_pos, engine);
                     }
                 }
             }

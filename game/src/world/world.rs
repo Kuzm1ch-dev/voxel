@@ -13,8 +13,8 @@ pub struct World {
 }
 
 impl World {
-    pub fn new() -> Self {
-        let registry = BlockRegistry::new();
+    pub fn new(engine: &mut Engine) -> Self {
+        let registry = BlockRegistry::new(engine);
         let mut world = Self {
             chunks: HashMap::new(),
             registry,

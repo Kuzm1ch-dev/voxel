@@ -344,4 +344,10 @@ impl UIRenderer {
             false
         }
     }
+    
+    pub fn render_image(&mut self, texture_name: &str, pos: Vec2, size: Vec2) {
+        // TODO: Get texture from TextureManager by name and render it
+        // For now, render a placeholder colored rect
+        self.render_rect(pos, size, Vec4::new(0.8, 0.2, 0.8, 1.0)); // Purple placeholder
+    }
 }

@@ -156,8 +156,8 @@ impl<'window> Renderer<'window> {
         self.meshes.clear();
     }
 
-    pub fn add_texture(&mut self, path: &String) {
-        self.texture_manager.add_texture(path);
+    pub fn add_texture(&mut self, path: &str, name: Option<&str>) -> Option<u32> {
+        self.texture_manager.add_texture(path, name)
     }
 
     pub fn add_mesh(&mut self, vertices: &[u8], indices: &[u16]) {
@@ -357,7 +357,7 @@ impl<'window> Renderer<'window> {
         });
         
         // Use TextureManager to load textures
-        let texture_manager = TextureManager::new(arc_device.clone(), arc_queue.clone(), 256);
+        let texture_manager = TextureManager::new(arc_device.clone(), arc_queue.clone(), 512);
         let texture_view = texture_manager.get_texture_view();
         let texture_sampler = texture_manager.get_sampler();
         

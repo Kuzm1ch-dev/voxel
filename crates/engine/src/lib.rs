@@ -80,25 +80,7 @@ impl<'window> Engine<'window> {
     //     self.ui_renderer.clear();
     // }
     
-    pub fn load_ui_texture(&mut self, path: &str) -> Option<u32> {
-        if let Ok(img) = image::open(path) {
-            let rgba = img.to_rgba8();
-            let dimensions = rgba.dimensions();
-            
-            // Найдем свободный ID для текстуры (не трогаем блочные текстуры)
-            let texture_id = self.ui_textures.len() as u32;
-            
-            // Загружаем текстуру в ImageRenderer
-            self.image_renderer.load_texture(self.renderer.get_device(), self.renderer.get_queue(), texture_id, &rgba, dimensions);
-            
-            self.ui_textures.insert(path.to_string(), texture_id);
-            Some(texture_id)
-        } else {
-            None
-        }
-    }
-    
-    pub fn get_ui_texture_id(&self, path: &str) -> Option<u32> {
-        self.ui_textures.get(path).copied()
+    pub fn add_texture(&mut self, path: &str, name: Option<&str>) -> Option<u32> {
+        self.renderer.add_texture(path, name)
     }
 }

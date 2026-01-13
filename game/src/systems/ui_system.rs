@@ -123,8 +123,7 @@ impl UISystem {
             )
     }
     
-    pub fn handle_click(&mut self, pos: Vec2, screen_size: Vec2, engine: &mut Engine) {
-        let screen_pos = pos * screen_size;
-        engine.renderer.ui.handle_click(screen_pos);
+    pub fn handle_click(&mut self, pos: Vec2, engine: &mut Engine) {
+        engine.renderer.ui.handle_click(pos);
     }
 }

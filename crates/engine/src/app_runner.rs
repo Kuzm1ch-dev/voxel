@@ -76,8 +76,7 @@ impl<T: GameApp> ApplicationHandler for AppRunner<T> {
                         event,
                     };
                     if let Some(input_event) = input::process_winit_event(&winit_event) {
-                        let screen_size = Vec2::new(800.0, 600.0); // TODO: get real size
-                        self.game_app.input_event(engine, &input_event, screen_size);
+                        self.game_app.input_event(engine, &input_event);
                     }
                 }
             }
@@ -100,8 +99,7 @@ impl<T: GameApp> ApplicationHandler for AppRunner<T> {
                 event,
             };
             if let Some(input_event) = input::process_winit_event(&winit_event) {
-                let screen_size = Vec2::new(800.0, 600.0); // TODO: get real size
-                self.game_app.input_event(engine, &input_event, screen_size);
+                self.game_app.input_event(engine, &input_event);
             }
         }
     }

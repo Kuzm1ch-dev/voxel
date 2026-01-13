@@ -1,6 +1,6 @@
 use voxel_engine::{Engine, GameApp, InputEvent};
 use glam::Vec2;
-use crate::game_state::GameState;
+use crate::game_state::{self, GameState};
 use crate::systems::render_system::RenderSystem;
 use crate::systems::input_system::InputSystem;
 use crate::systems::ui_system::UISystem;
@@ -25,11 +25,11 @@ impl Default for Game {
 
 impl GameApp for Game {
     fn ready(&mut self, engine: &mut Engine) {
-        let game_state = GameState::new();
+        let game_state = GameState::new(engine);
         
-        for path in game_state.world.registry.get_texture_paths().iter() {
-            engine.renderer.add_texture(path);
-        }
+        // Load textures directly from registry
+        game_state.world.registry.load_textures(engine);
+        
         engine.lock_cursor();
         
         self.game_state = Some(game_state);
@@ -50,11 +50,11 @@ impl GameApp for Game {
         }
     }
     
-    fn input_event(&mut self, engine: &mut Engine, event: &InputEvent, screen_size: Vec2) {
+    fn input_event(&mut self, engine: &mut Engine, event: &InputEvent) {
         if let (Some(game_state), Some(ui_system), Some(input_system)) = 
             (self.game_state.as_mut(), self.ui_system.as_mut(), self.input_system.as_ref()) 
         {
-            input_system.handle_input(event, game_state, ui_system, screen_size, engine);
+            input_system.handle_input(event, game_state, ui_system, engine);
         }
     }
     

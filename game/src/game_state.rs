@@ -1,5 +1,5 @@
-use glam::Vec3;
-use voxel_engine::InputEvent;
+use glam::{Vec2, Vec3};
+use voxel_engine::{Engine, InputEvent};
 use crate::player::GamePlayer;
 use crate::systems::raycast::Raycast;
 use crate::world::world::World;
@@ -14,10 +14,10 @@ pub struct GameState {
 }
 
 impl GameState {
-    pub fn new() -> Self {
+    pub fn new(engine: &mut Engine) -> Self {
         Self {
             player: GamePlayer::new(Vec3::new(0.0, 38.0, 0.0)),
-            world: World::new(),
+            world: World::new(engine),
             pressed_keys: HashSet::new(),
             mouse_position: None,
         }
@@ -72,10 +72,7 @@ impl GameState {
             }
             InputEvent::CursorMoved(x, y) => {
                 // Нормализуем координаты к диапазону 0-1
-                // TODO: получить размер окна для правильной нормализации
-                let normalized_x = *x / 800.0; // предполагаем ширину 800
-                let normalized_y = *y / 600.0; // предполагаем высоту 600
-                self.set_mouse_position(glam::Vec2::new(normalized_x, normalized_y));
+                self.set_mouse_position(glam::Vec2::new(*x, *y));
             }
             InputEvent::MouseButton(button, state) => {
                 if !ui_open && *state == winit::event::ElementState::Pressed {

@@ -164,3 +164,42 @@ impl Widget for Button {
         Vec2::new(self.text.len() as f32 * 8.0 * self.scale + 20.0, 8.0 * self.scale + 10.0)
     }
 }
+
+pub struct Image {
+    pub style: Style,
+    pub texture_name: String,
+    pub rect: Rect,
+}
+
+impl Image {
+    pub fn new(texture_name: &str) -> Self {
+        Self {
+            style: Style::default(),
+            texture_name: texture_name.to_string(),
+            rect: Rect::new(0.0, 0.0, 0.0, 0.0),
+        }
+    }
+
+    pub fn with_style<F>(mut self, f: F) -> Self 
+    where F: FnOnce(&mut Style) {
+        f(&mut self.style);
+        self
+    }
+}
+
+impl Widget for Image {
+    fn style(&self) -> &Style { &self.style }
+    fn style_mut(&mut self) -> &mut Style { &mut self.style }
+
+    fn render(&mut self, renderer: &mut crate::UIRenderer, rect: Rect) {
+        if !self.style.visible { return; }
+        let layout_rect = calculate_layout(&self.style, rect, self.content_size());
+        self.rect = layout_rect;
+        renderer.render_image(&self.texture_name, Vec2::new(layout_rect.x, layout_rect.y), Vec2::new(layout_rect.width, layout_rect.height));
+    }
+
+    fn content_size(&self) -> Vec2 {
+        // Default size, can be overridden by style
+        Vec2::new(64.0, 64.0)
+    }
+}
