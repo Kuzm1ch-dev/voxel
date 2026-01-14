@@ -6,6 +6,7 @@ pub struct TextureInfo {
     pub path: String,
     pub dimensions: (u32, u32),
     pub atlas_position: (u32, u32, u32), // x, y, z в атласе
+    pub uvs: (f32, f32, f32, f32), // 
 }
 
 pub struct TextureManager {
@@ -54,6 +55,10 @@ impl TextureManager {
         }
     }
 
+    pub fn get_atlas_size(&self) -> u32 {
+        self.atlas_size
+    }
+
     pub fn add_texture(&mut self, path: &str, name: Option<&str>) -> Option<u32> {
         let texture_name = name.unwrap_or_else(|| {
             std::path::Path::new(path)
@@ -86,17 +91,23 @@ impl TextureManager {
         
         self.write_texture_data(&texture_data, x, y, z, width, height);
         
+        let u_min = x as f32 / self.atlas_size as f32;
+        let v_min = y as f32 / self.atlas_size as f32;
+        let u_max = (x + width) as f32 / self.atlas_size as f32;
+        let v_max = (y + height) as f32 / self.atlas_size as f32;      
+
         let texture_info = TextureInfo {
             id: self.next_id,
             path: path.to_string(),
             dimensions: (width, height),
             atlas_position: (x, y, z),
+            uvs: (u_min, v_min, u_max, v_max)
         };
         
         self.textures.insert(texture_name.to_string(), texture_info);
         self.texture_by_id.insert(self.next_id, texture_name.to_string());
         
-        let id = self.next_id;
+        let id: u32 = self.next_id;
         self.next_id += 1;
         Some(id)
     }

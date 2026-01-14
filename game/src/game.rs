@@ -40,7 +40,7 @@ impl GameApp for Game {
     
     fn update(&mut self, engine: &mut Engine, delta_time: f32) {
         if let (Some(game_state), Some(ui_system)) = (self.game_state.as_mut(), self.ui_system.as_mut()) {
-            game_state.update(delta_time, ui_system.is_open);
+            game_state.update(engine, delta_time, ui_system.is_open);
             
             if ui_system.is_open {
                 engine.unlock_cursor();
@@ -54,7 +54,7 @@ impl GameApp for Game {
         if let (Some(game_state), Some(ui_system), Some(input_system)) = 
             (self.game_state.as_mut(), self.ui_system.as_mut(), self.input_system.as_ref()) 
         {
-            input_system.handle_input(event, game_state, ui_system, engine);
+            input_system.handle_input(engine, event, game_state, ui_system);
         }
     }
     

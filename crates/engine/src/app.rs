@@ -1,4 +1,4 @@
-use glam::Vec2;
+use std::sync::Arc;
 use crate::input::InputEvent;
 
 pub trait GameApp {

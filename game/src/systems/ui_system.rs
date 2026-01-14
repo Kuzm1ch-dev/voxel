@@ -123,7 +123,7 @@ impl UISystem {
             )
     }
     
-    pub fn handle_click(&mut self, pos: Vec2, engine: &mut Engine) {
+    pub fn handle_click(&mut self, engine: &mut Engine, pos: Vec2) {
         engine.renderer.ui.handle_click(pos);
     }
 }

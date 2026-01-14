@@ -23,7 +23,7 @@ impl World {
         // Generate chunks around origin
         for x in -1..=1 {
             for z in -1..=1 {
-                let chunk = Chunk::new(x, z, &world.registry);
+                let chunk = Chunk::new(engine, x, z, &world.registry);
                 world.chunks.insert((x, z), chunk);
             }
         }
@@ -56,7 +56,7 @@ impl World {
         &mut self.chunks
     }
     
-    pub fn break_block(&mut self, world_pos: (i32, i32, i32)) -> bool {
+    pub fn break_block(&mut self, engine: &Engine, world_pos: (i32, i32, i32)) -> bool {
         let (world_x, world_y, world_z) = world_pos;
         let chunk_x = world_x.div_euclid(CHUNK_SIZE as i32);
         let chunk_z = world_z.div_euclid(CHUNK_SIZE as i32);
@@ -66,14 +66,14 @@ impl World {
         
         if let Some(chunk) = self.chunks.get_mut(&(chunk_x, chunk_z)) {
             if local_y < CHUNK_HEIGHT && chunk.blocks[local_x][local_y][local_z].is_some() {
-                chunk.set_block(local_x, local_y, local_z, "air", &self.registry);
+                chunk.set_block(engine, local_x, local_y, local_z, "air", &self.registry);
                 return true;
             }
         }
         false
     }
     
-    pub fn place_block(&mut self, world_pos: (i32, i32, i32), block_name: &str) -> bool {
+    pub fn place_block(&mut self, engine: &Engine, world_pos: (i32, i32, i32), block_name: &str) -> bool {
         let (world_x, world_y, world_z) = world_pos;
         let chunk_x = world_x.div_euclid(CHUNK_SIZE as i32);
         let chunk_z = world_z.div_euclid(CHUNK_SIZE as i32);
@@ -83,7 +83,7 @@ impl World {
         
         if let Some(chunk) = self.chunks.get_mut(&(chunk_x, chunk_z)) {
             if local_y < CHUNK_HEIGHT && chunk.blocks[local_x][local_y][local_z].is_none() {
-                chunk.set_block(local_x, local_y, local_z, block_name, &self.registry);
+                chunk.set_block(engine, local_x, local_y, local_z, block_name, &self.registry);
                 return true;
             }
         }

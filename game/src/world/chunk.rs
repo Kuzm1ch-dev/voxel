@@ -1,4 +1,4 @@
-use voxel_engine::Vertex;
+use voxel_engine::{Engine, Vertex, render::texture_manager::TextureInfo};
 use crate::common::{block::Block, block_registry::BlockRegistry};
 
 pub const CHUNK_SIZE: usize = 16;
@@ -12,7 +12,7 @@ pub struct Chunk {
 }
 
 impl Chunk {
-    pub fn new(x: i32, z: i32, registry: &BlockRegistry) -> Self {
+    pub fn new(engine: &Engine, x: i32, z: i32, registry: &BlockRegistry) -> Self {
         let mut blocks = Vec::with_capacity(CHUNK_SIZE);
         for _ in 0..CHUNK_SIZE {
             let mut y_vec = Vec::with_capacity(CHUNK_HEIGHT);
@@ -34,7 +34,7 @@ impl Chunk {
         };
         
         chunk.generate_terrain(registry);
-        chunk.generate_mesh(registry);
+        chunk.generate_mesh(engine, registry);
         chunk
     }
     
@@ -71,7 +71,7 @@ impl Chunk {
         }
     }
     
-    pub fn set_block(&mut self, x: usize, y: usize, z: usize, block_name: &str, registry: &BlockRegistry) {
+    pub fn set_block(&mut self, engine: &Engine, x: usize, y: usize, z: usize, block_name: &str, registry: &BlockRegistry) {
         if x >= CHUNK_SIZE || y >= CHUNK_HEIGHT || z >= CHUNK_SIZE {
             return;
         }
@@ -82,10 +82,10 @@ impl Chunk {
             self.blocks[x][y][z] = Some(block);
         }
         
-        self.generate_mesh(registry);
+        self.generate_mesh(engine, registry);
     }
     
-    fn generate_mesh(&mut self, registry: &BlockRegistry) {
+    fn generate_mesh(&mut self, engine: &Engine, registry: &BlockRegistry) {
         self.vertices.clear();
         self.indices.clear();
         
@@ -95,7 +95,7 @@ impl Chunk {
         for x in 0..CHUNK_SIZE as i32 {
             for y in 0..CHUNK_HEIGHT as i32 {
                 for z in 0..CHUNK_SIZE as i32 {
-                    let block_name = self.get_block_name(x, y, z);
+                    let block_name = self.get_block_name(x, y, z).to_owned();
                     if block_name == "air" {
                         continue;
                     }
@@ -104,71 +104,77 @@ impl Chunk {
                     let world_y = y;
                     let world_z = chunk_world_z + z;
                     
-                    let tex_index = registry.get_texture_index(block_name);
-                    
+                    let tex_index = registry.get_texture_index(block_name.as_str());
+                    let some_tex_info = engine.renderer.texture_manager.get_texture_info_by_id(tex_index);
+                    if let Some(texture_info) = some_tex_info{
+                        if self.get_block_name(x, y, z + 1) == "air" {
+                            self.add_face([world_x as f32, world_y as f32, (world_z + 1) as f32], [0.0, 0.0, 1.0], texture_info);
+                        }
+                        if self.get_block_name(x, y, z - 1) == "air" {
+                            self.add_face([world_x as f32, world_y as f32, world_z as f32], [0.0, 0.0, -1.0], texture_info);
+                        }
+                        if self.get_block_name(x + 1, y, z) == "air" {
+                            self.add_face([(world_x + 1) as f32, world_y as f32, world_z as f32], [1.0, 0.0, 0.0], texture_info);
+                        }
+                        if self.get_block_name(x - 1, y, z) == "air" {
+                            self.add_face([world_x as f32, world_y as f32, world_z as f32], [-1.0, 0.0, 0.0], texture_info);
+                        }
+                        if self.get_block_name(x, y + 1, z) == "air" {
+                            self.add_face([world_x as f32, (world_y + 1) as f32, world_z as f32], [0.0, 1.0, 0.0], texture_info);
+                        }
+                        if self.get_block_name(x, y - 1, z) == "air" {
+                            self.add_face([world_x as f32, world_y as f32, world_z as f32], [0.0, -1.0, 0.0], texture_info);
+                        }
+                    }
                     // Check each face and add if exposed
-                    if self.get_block_name(x, y, z + 1) == "air" {
-                        self.add_face([world_x as f32, world_y as f32, (world_z + 1) as f32], [0.0, 0.0, 1.0], tex_index);
-                    }
-                    if self.get_block_name(x, y, z - 1) == "air" {
-                        self.add_face([world_x as f32, world_y as f32, world_z as f32], [0.0, 0.0, -1.0], tex_index);
-                    }
-                    if self.get_block_name(x + 1, y, z) == "air" {
-                        self.add_face([(world_x + 1) as f32, world_y as f32, world_z as f32], [1.0, 0.0, 0.0], tex_index);
-                    }
-                    if self.get_block_name(x - 1, y, z) == "air" {
-                        self.add_face([world_x as f32, world_y as f32, world_z as f32], [-1.0, 0.0, 0.0], tex_index);
-                    }
-                    if self.get_block_name(x, y + 1, z) == "air" {
-                        self.add_face([world_x as f32, (world_y + 1) as f32, world_z as f32], [0.0, 1.0, 0.0], tex_index);
-                    }
-                    if self.get_block_name(x, y - 1, z) == "air" {
-                        self.add_face([world_x as f32, world_y as f32, world_z as f32], [0.0, -1.0, 0.0], tex_index);
-                    }
                 }
             }
         }
     }
     
-    fn add_face(&mut self, position: [f32; 3], normal: [f32; 3], tex_index: u32) {
+    fn add_face(&mut self, position: [f32; 3], normal: [f32; 3], texture_info: &TextureInfo) {
         let base_index = self.vertices.len() as u16;
-        
+        // Получаем информацию о текстуре из atlas_position и dimensions
+        // Размер атласа (должен совпадать с размером в TextureManager)
+
+        let (u_min,v_min, u_max, v_max) = texture_info.uvs;
+        let tex_index = texture_info.atlas_position.2;
         match normal {
             [0.0, 0.0, 1.0] => { // Front
-                self.vertices.push(Vertex::new([position[0], position[1], position[2]], normal, [0.0, 1.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0] + 1.0, position[1], position[2]], normal, [1.0, 1.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0] + 1.0, position[1] + 1.0, position[2]], normal, [1.0, 0.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0], position[1] + 1.0, position[2]], normal, [0.0, 0.0], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1], position[2]], normal, [u_min, v_max], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0] + 1.0, position[1], position[2]], normal, [u_max, v_max], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0] + 1.0, position[1] + 1.0, position[2]], normal, [u_max, v_min], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1] + 1.0, position[2]], normal, [u_min, v_min], tex_index, 1.0));
             },
             [0.0, 0.0, -1.0] => { // Back
-                self.vertices.push(Vertex::new([position[0] + 1.0, position[1], position[2]], normal, [0.0, 1.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0], position[1], position[2]], normal, [1.0, 1.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0], position[1] + 1.0, position[2]], normal, [1.0, 0.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0] + 1.0, position[1] + 1.0, position[2]], normal, [0.0, 0.0], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0] + 1.0, position[1], position[2]], normal, [u_min, v_max], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1], position[2]], normal, [u_max, v_max], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1] + 1.0, position[2]], normal, [u_max, v_min], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0] + 1.0, position[1] + 1.0, position[2]], normal, [u_min, v_min], tex_index, 1.0));
             },
             [1.0, 0.0, 0.0] => { // Right
-                self.vertices.push(Vertex::new([position[0], position[1], position[2] + 1.0], normal, [0.0, 1.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0], position[1], position[2]], normal, [1.0, 1.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0], position[1] + 1.0, position[2]], normal, [1.0, 0.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0], position[1] + 1.0, position[2] + 1.0], normal, [0.0, 0.0], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1], position[2] + 1.0], normal, [u_min, v_max], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1], position[2]], normal, [u_max, v_max], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1] + 1.0, position[2]], normal, [u_max, v_min], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1] + 1.0, position[2] + 1.0], normal, [u_min, v_min], tex_index, 1.0));
             },
             [-1.0, 0.0, 0.0] => { // Left
-                self.vertices.push(Vertex::new([position[0], position[1], position[2]], normal, [0.0, 1.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0], position[1], position[2] + 1.0], normal, [1.0, 1.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0], position[1] + 1.0, position[2] + 1.0], normal, [1.0, 0.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0], position[1] + 1.0, position[2]], normal, [0.0, 0.0], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1], position[2]], normal, [u_min, v_max], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1], position[2] + 1.0], normal, [u_max, v_max], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1] + 1.0, position[2] + 1.0], normal, [u_max, v_min], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1] + 1.0, position[2]], normal, [u_min, v_min], tex_index, 1.0));
             },
             [0.0, 1.0, 0.0] => { // Top
-                self.vertices.push(Vertex::new([position[0], position[1], position[2] + 1.0], normal, [0.0, 1.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0] + 1.0, position[1], position[2] + 1.0], normal, [1.0, 1.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0] + 1.0, position[1], position[2]], normal, [1.0, 0.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0], position[1], position[2]], normal, [0.0, 0.0], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1], position[2] + 1.0], normal, [u_min, v_max], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0] + 1.0, position[1], position[2] + 1.0], normal, [u_max, v_max], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0] + 1.0, position[1], position[2]], normal, [u_max, v_min], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1], position[2]], normal, [u_min, v_min], tex_index, 1.0));
             },
             [0.0, -1.0, 0.0] => { // Bottom
-                self.vertices.push(Vertex::new([position[0], position[1], position[2]], normal, [0.0, 1.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0] + 1.0, position[1], position[2]], normal, [1.0, 1.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0] + 1.0, position[1], position[2] + 1.0], normal, [1.0, 0.0], tex_index, 1.0));
-                self.vertices.push(Vertex::new([position[0], position[1], position[2] + 1.0], normal, [0.0, 0.0], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1], position[2]], normal, [u_min, v_max], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0] + 1.0, position[1], position[2]], normal, [u_max, v_max], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0] + 1.0, position[1], position[2] + 1.0], normal, [u_max, v_min], tex_index, 1.0));
+                self.vertices.push(Vertex::new([position[0], position[1], position[2] + 1.0], normal, [u_min, v_min], tex_index, 1.0));
             },
             _ => return,
         }

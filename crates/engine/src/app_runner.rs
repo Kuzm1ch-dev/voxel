@@ -7,17 +7,18 @@ use crate::{Engine, app::GameApp, input};
 use glam::Vec2;
 
 pub struct AppRunner<T: GameApp> {
-    window: Option<Arc<Window>>,
-    engine: Option<Engine<'static>>,
+    window: Arc<Window>,
+    engine: Box<Engine<'static>>,
     game_app: T,
     initialized: bool,
 }
 
 impl<T: GameApp> AppRunner<T> {
-    pub fn new(game_app: T) -> Self {
+    pub fn new(game_app: T, window: Arc<Window>) -> Self {
+        let engine = Engine::new(window.clone());
         Self {
-            window: None,
-            engine: None,
+            window: window,
+            engine: Box::new(engine),
             game_app,
             initialized: false,
         }
@@ -26,20 +27,8 @@ impl<T: GameApp> AppRunner<T> {
 
 impl<T: GameApp> ApplicationHandler for AppRunner<T> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_none() {
-            let win_attr = Window::default_attributes().with_title("Voxel Game");
-            let window = Arc::new(
-                event_loop
-                    .create_window(win_attr)
-                    .expect("Failed to create window"),
-            );
-            self.window = Some(window.clone());
-            
-            let mut engine = Engine::new(window.clone());
-            self.game_app.ready(&mut engine);
-            self.engine = Some(engine);
-            self.initialized = true;
-        }
+        self.game_app.ready(self.engine.as_mut());
+        self.initialized = true;
     }
 
     fn window_event(
@@ -57,27 +46,21 @@ impl<T: GameApp> ApplicationHandler for AppRunner<T> {
                 event_loop.exit();
             }
             WindowEvent::Resized(new_size) => {
-                if let (Some(engine), Some(window)) = (self.engine.as_mut(), self.window.as_ref()) {
-                    self.game_app.resize(engine, new_size);
-                    window.request_redraw();
-                }
+                self.game_app.resize(self.engine.as_mut(), new_size);
+                self.window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                if let Some(engine) = self.engine.as_mut() {
-                    self.game_app.update(engine, 0.016);
-                    self.game_app.render(engine);
-                }
-                self.window.as_ref().unwrap().request_redraw();
+                self.game_app.update(self.engine.as_mut(), 0.016);
+                self.game_app.render(self.engine.as_mut());
+                self.window.request_redraw();
             }
             _ => {
-                if let Some(engine) = self.engine.as_mut() {
-                    let winit_event = winit::event::Event::WindowEvent {
-                        window_id: _window_id,
-                        event,
-                    };
-                    if let Some(input_event) = input::process_winit_event(&winit_event) {
-                        self.game_app.input_event(engine, &input_event);
-                    }
+                let winit_event = winit::event::Event::WindowEvent {
+                    window_id: _window_id,
+                    event,
+                };
+                if let Some(input_event) = input::process_winit_event(&winit_event) {
+                    self.game_app.input_event(self.engine.as_mut(), &input_event);
                 }
             }
         }
@@ -93,14 +76,12 @@ impl<T: GameApp> ApplicationHandler for AppRunner<T> {
             return;
         }
 
-        if let Some(engine) = self.engine.as_mut() {
-            let winit_event = winit::event::Event::DeviceEvent {
-                device_id,
-                event,
-            };
-            if let Some(input_event) = input::process_winit_event(&winit_event) {
-                self.game_app.input_event(engine, &input_event);
-            }
+        let winit_event = winit::event::Event::DeviceEvent {
+            device_id,
+            event,
+        };
+        if let Some(input_event) = input::process_winit_event(&winit_event) {
+            self.game_app.input_event(self.engine.as_mut(), &input_event);
         }
     }
 }

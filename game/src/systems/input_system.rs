@@ -9,7 +9,7 @@ impl InputSystem {
         Self
     }
 
-    pub fn handle_input(&self, input: &InputEvent, game_state: &mut GameState, ui_system: &mut UISystem, engine: &mut Engine) {
+    pub fn handle_input(&self, engine: &mut Engine, input: &InputEvent, game_state: &mut GameState, ui_system: &mut UISystem) {
         match input {
             InputEvent::KeyPressed(key) => {
                 if *key == KeyCode::KeyI {
@@ -19,7 +19,7 @@ impl InputSystem {
             InputEvent::MouseButton(button, state) => {
                 if *state == winit::event::ElementState::Pressed {
                     if let Some(mouse_pos) = game_state.get_mouse_position() {
-                        ui_system.handle_click(mouse_pos, engine);
+                        ui_system.handle_click(engine, mouse_pos);
                     }
                 }
             }
@@ -27,6 +27,6 @@ impl InputSystem {
         }
         
         // Всегда передаем события игровому состоянию
-        game_state.handle_input(input, ui_system.is_open);
+        game_state.handle_input(engine, input, ui_system.is_open);
     }
 }

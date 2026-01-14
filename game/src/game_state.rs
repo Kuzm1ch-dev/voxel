@@ -31,7 +31,7 @@ impl GameState {
         self.mouse_position = Some(pos);
     }
 
-    pub fn update(&mut self, dt: f32, ui_open: bool) {
+    pub fn update(&mut self, engine: &Engine, dt: f32, ui_open: bool) {
         // Handle continuous key presses only if UI is not open
         if !ui_open {
             if self.pressed_keys.contains(&KeyCode::KeyW) {
@@ -57,7 +57,7 @@ impl GameState {
         self.player.update(dt);
     }
 
-    pub fn handle_input(&mut self, input: &InputEvent, ui_open: bool) {
+    pub fn handle_input(&mut self, engine: &Engine, input: &InputEvent, ui_open: bool) {
         match input {
             InputEvent::KeyPressed(key) => {
                 self.pressed_keys.insert(*key);
@@ -83,7 +83,7 @@ impl GameState {
                             let ray_dir = (self.player.get_camera_target() - ray_pos).normalize();
                             
                             if let Some(hit) = Raycast::cast_ray(ray_pos, ray_dir, 10.0, &self.world) {
-                                self.world.break_block(hit.block_pos);
+                                self.world.break_block(engine, hit.block_pos);
                             }
                         }
                         winit::event::MouseButton::Right => {
@@ -93,7 +93,7 @@ impl GameState {
                             
                             if let Some(hit) = Raycast::cast_ray(ray_pos, ray_dir, 10.0, &self.world) {
                                 let place_pos = Raycast::get_adjacent_block_pos(&hit);
-                                self.world.place_block(place_pos, "stone");
+                                self.world.place_block(engine, place_pos, "stone");
                             }
                         }
                         _ => {}

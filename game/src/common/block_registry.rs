@@ -35,22 +35,21 @@ impl BlockRegistry {
     }
     
     fn register_block(&mut self, block: Box<dyn Block>, engine: &mut Engine) {
-        let id = block.get_id();
+        let block_id = block.get_id();
         let texture_path = block.get_texture_path();
         
-        println!("Registering block {} with texture: {}", id, texture_path);
+        println!("Registering block {} with texture: {}", block_id, texture_path);
         
         if !texture_path.is_empty() && !self.texture_paths.contains(&texture_path.to_string()) {
             let some_id = engine.add_texture(texture_path, None);
-            if let Some(id) = some_id {
+            if let Some(texture_id) = some_id {
                 let texture_index = self.texture_paths.len() as u32;
                 self.texture_paths.push(texture_path.to_string());
-                self.texture_indices.insert(id.to_string(), texture_index);
-                println!("Block {} assigned texture index {}", id, texture_index);
+                self.texture_indices.insert(block_id.to_string(), texture_index);
             }
         }
         
-        self.blocks.insert(id.to_string(), block);
+        self.blocks.insert(block_id.to_string(), block);
     }
     
     pub fn get_block(&self, id: &str) -> Option<&dyn Block> {
