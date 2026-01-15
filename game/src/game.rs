@@ -4,12 +4,14 @@ use crate::game_state::{self, GameState};
 use crate::systems::render_system::RenderSystem;
 use crate::systems::input_system::InputSystem;
 use crate::systems::ui_system::UISystem;
+use crate::modding::mod_loader::ModLoader;
 
 pub struct Game {
     game_state: Option<GameState>,
     ui_system: Option<UISystem>,
     render_system: Option<RenderSystem>,
     input_system: Option<InputSystem>,
+    mod_loader: Option<ModLoader>,
 }
 
 impl Default for Game {
@@ -19,15 +21,28 @@ impl Default for Game {
             ui_system: None,
             render_system: None,
             input_system: None,
+            mod_loader: None,
         }
     }
 }
 
 impl GameApp for Game {
     fn ready(&mut self, engine: &mut Engine) {
-        let game_state = GameState::new(engine);
+        // Load mods first
+        let mut mod_loader = ModLoader::new().expect("Failed to create mod loader");
+        if let Err(e) = mod_loader.load_mods("mods") {
+            eprintln!("Error loading mods: {}", e);
+        }
         
-        // Load textures directly from registry
+        let mut game_state = GameState::new(engine);
+        
+        // Register Lua blocks
+        for (id, (lua_block, mod_name)) in mod_loader.blocks.iter() {
+            println!("Registering block '{}' from mod '{}'", id, mod_name);
+            game_state.world.registry.register_lua_block(lua_block.clone(), engine);
+        }
+        
+        // Load textures
         game_state.world.registry.load_textures(engine);
         
         engine.lock_cursor();
@@ -36,6 +51,7 @@ impl GameApp for Game {
         self.ui_system = Some(UISystem::new());
         self.render_system = Some(RenderSystem::new());
         self.input_system = Some(InputSystem::new());
+        self.mod_loader = Some(mod_loader);
     }
     
     fn update(&mut self, engine: &mut Engine, delta_time: f32) {

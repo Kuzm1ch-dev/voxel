@@ -93,7 +93,7 @@ impl GameState {
                             
                             if let Some(hit) = Raycast::cast_ray(ray_pos, ray_dir, 10.0, &self.world) {
                                 let place_pos = Raycast::get_adjacent_block_pos(&hit);
-                                self.world.place_block(engine, place_pos, "stone");
+                                self.world.place_block(engine, place_pos, "example:ruby_block");
                             }
                         }
                         _ => {}

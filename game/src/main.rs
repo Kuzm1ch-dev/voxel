@@ -6,6 +6,7 @@ mod game_state;
 mod world;
 mod systems;
 mod utils;
+mod modding;
 
 fn main() -> Result<(), winit::error::EventLoopError> {
     // Устанавливаем рабочую директорию в папку game

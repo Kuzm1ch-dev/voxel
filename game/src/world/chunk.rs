@@ -70,6 +70,18 @@ impl Chunk {
             None => "air",
         }
     }
+
+    
+    fn get_block_id(&self, x: i32, y: i32, z: i32) -> &str {
+        if x < 0 || x >= CHUNK_SIZE as i32 || y < 0 || y >= CHUNK_HEIGHT as i32 || z < 0 || z >= CHUNK_SIZE as i32 {
+            return "air";
+        }
+        
+        match &self.blocks[x as usize][y as usize][z as usize] {
+            Some(block) => block.get_id(),
+            None => "air",
+        }
+    }
     
     pub fn set_block(&mut self, engine: &Engine, x: usize, y: usize, z: usize, block_name: &str, registry: &BlockRegistry) {
         if x >= CHUNK_SIZE || y >= CHUNK_HEIGHT || z >= CHUNK_SIZE {
@@ -95,8 +107,8 @@ impl Chunk {
         for x in 0..CHUNK_SIZE as i32 {
             for y in 0..CHUNK_HEIGHT as i32 {
                 for z in 0..CHUNK_SIZE as i32 {
-                    let block_name = self.get_block_name(x, y, z).to_owned();
-                    if block_name == "air" {
+                    let block_id = self.get_block_id(x, y, z).to_owned();
+                    if block_id == "air" {
                         continue;
                     }
                     
@@ -104,8 +116,9 @@ impl Chunk {
                     let world_y = y;
                     let world_z = chunk_world_z + z;
                     
-                    let tex_index = registry.get_texture_index(block_name.as_str());
+                    let tex_index = registry.get_texture_index(block_id.as_str());
                     let some_tex_info = engine.renderer.texture_manager.get_texture_info_by_id(tex_index);
+
                     if let Some(texture_info) = some_tex_info{
                         if self.get_block_name(x, y, z + 1) == "air" {
                             self.add_face([world_x as f32, world_y as f32, (world_z + 1) as f32], [0.0, 0.0, 1.0], texture_info);

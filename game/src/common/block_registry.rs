@@ -3,7 +3,7 @@ use voxel_engine::Engine;
 
 use crate::common::block::Block;
 use crate::blocks::{air::AirBlock, stone::StoneBlock, dirt::DirtBlock, grass::GrassBlock};
-
+use crate::modding::lua_block::LuaBlock;
 
 
 pub struct BlockRegistry {
@@ -21,11 +21,15 @@ impl BlockRegistry {
         };
         
         registry.register_block(Box::new(AirBlock), engine);
-        registry.register_block(Box::new(StoneBlock), engine);
         registry.register_block(Box::new(DirtBlock), engine);
+        registry.register_block(Box::new(StoneBlock), engine);
         registry.register_block(Box::new(GrassBlock), engine);
         
         registry
+    }
+    
+    pub fn register_lua_block(&mut self, lua_block: LuaBlock, engine: &mut Engine) {
+        self.register_block(Box::new(lua_block), engine);
     }
     
     pub fn load_textures(&self, engine: &mut voxel_engine::Engine) {
@@ -34,7 +38,7 @@ impl BlockRegistry {
         }
     }
     
-    fn register_block(&mut self, block: Box<dyn Block>, engine: &mut Engine) {
+    pub fn register_block(&mut self, block: Box<dyn Block>, engine: &mut Engine) {
         let block_id = block.get_id();
         let texture_path = block.get_texture_path();
         
@@ -57,13 +61,27 @@ impl BlockRegistry {
     }
     
     pub fn create_block(&self, id: &str) -> Option<Box<dyn Block>> {
-        match id {
-            "air" => Some(Box::new(AirBlock)),
-            "stone" => Some(Box::new(StoneBlock)),
-            "dirt" => Some(Box::new(DirtBlock)),
-            "grass" => Some(Box::new(GrassBlock)),
-            _ => None,
-        }
+        self.blocks.get(id).map(|b| {
+            match id {
+                "air" => Box::new(AirBlock) as Box<dyn Block>,
+                "stone" => Box::new(StoneBlock) as Box<dyn Block>,
+                "dirt" => Box::new(DirtBlock) as Box<dyn Block>,
+                "grass" => Box::new(GrassBlock) as Box<dyn Block>,
+                _ => {
+                    if let Some(block) = self.blocks.get(id) {
+                        Box::new(LuaBlock {
+                            id: block.get_id().to_string(),
+                            name: block.get_name().to_string(),
+                            texture_path: block.get_texture_path().to_string(),
+                            solid: block.is_solid(),
+                            transparent: block.is_transparent(),
+                        }) as Box<dyn Block>
+                    } else {
+                        Box::new(AirBlock) as Box<dyn Block>
+                    }
+                }
+            }
+        })
     }
     
     pub fn get_texture_index(&self, block_id: &str) -> u32 {

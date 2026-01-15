@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 use wgpu::{Sampler, TextureView};
-
+#[derive(Debug, Clone)]
 pub struct TextureInfo {
     pub id: u32,
     pub path: String,
@@ -103,7 +103,7 @@ impl TextureManager {
             atlas_position: (x, y, z),
             uvs: (u_min, v_min, u_max, v_max)
         };
-        
+        println!("Added texture: {} at position ({}, {}, {}) with uvs ({}, {}, {}, {}))", texture_name, x, y, z, u_min, v_min, u_max, v_max);
         self.textures.insert(texture_name.to_string(), texture_info);
         self.texture_by_id.insert(self.next_id, texture_name.to_string());
         
