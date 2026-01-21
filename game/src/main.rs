@@ -7,7 +7,7 @@ mod world;
 mod systems;
 mod utils;
 mod modding;
-
+mod ui;
 fn main() -> Result<(), winit::error::EventLoopError> {
     // Устанавливаем рабочую директорию в папку game
     if let Err(_) = std::env::set_current_dir("game") {

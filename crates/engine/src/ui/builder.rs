@@ -1,6 +1,8 @@
+use std::sync::{Arc, Mutex};
+
 use glam::{Vec2, Vec4};
 use crate::{UIRenderer, ui::{LayoutType, container::Container, core::*, widgets::Widget}};
-
+#[derive(Clone)]
 pub struct UI {
     pub root: Container,
 }
@@ -16,8 +18,9 @@ impl UI {
         }
     }
 
-    pub fn add_widget(mut self, widget: Box<dyn Widget>) -> Self {
-        self.root = self.root.add_child(widget);
+    pub fn add_widget(mut self, widget: impl Widget + 'static) -> Self {
+        let widget_arc = Arc::new(Mutex::new(widget));
+        self.root = self.root.add_child(widget_arc);
         self
     }
 

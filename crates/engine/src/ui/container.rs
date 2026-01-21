@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use glam::Vec2;
 use crate::ui::{core::*, widgets::*};
 
@@ -8,11 +10,11 @@ pub enum LayoutType {
     Grid { columns: usize, spacing: f32 },
     Stack, // Элементы накладываются друг на друга
 }
-
+#[derive(Clone)]
 pub struct Container {
     pub style: Style,
     pub layout: LayoutType,
-    pub children: Vec<Box<dyn Widget>>,
+    pub children: Vec<Arc<Mutex<dyn Widget>>>,
 }
 
 impl Container {
@@ -30,25 +32,25 @@ impl Container {
         self
     }
 
-    pub fn add_child(mut self, child: Box<dyn Widget>) -> Self {
+    pub fn add_child(mut self, child: Arc<Mutex<dyn Widget>>) -> Self {
         self.children.push(child);
         self
     }
 
     pub fn add_text(self, text: Text) -> Self {
-        self.add_child(Box::new(text))
+        self.add_child(Arc::new(Mutex::new(text)))
     }
 
     pub fn add_panel(self, panel: Panel) -> Self {
-        self.add_child(Box::new(panel))
+        self.add_child(Arc::new(Mutex::new(panel)))
     }
 
     pub fn add_button(self, button: Button) -> Self {
-        self.add_child(Box::new(button))
+        self.add_child(Arc::new(Mutex::new(button)))
     }
 
     pub fn add_container(self, container: Container) -> Self {
-        self.add_child(Box::new(container))
+        self.add_child(Arc::new(Mutex::new(container)))
     }
 }
 
@@ -78,7 +80,8 @@ impl Widget for Container {
         if !self.style.visible { return false; }
 
         for child in self.children.iter().rev() {
-            if child.handle_click(point) {
+            let mut lock_child = child.lock().unwrap();
+            if lock_child.handle_click(point) {
                 return true;
             }
         }
@@ -92,17 +95,19 @@ impl Container {
             LayoutType::Vertical { spacing } => {
                 let mut current_y = content_rect.y;
                 for child in &mut self.children {
-                    let child_height = if child.style().size.y > 0.0 { child.style().size.y } else { 40.0 };
+                    let mut lock_child = child.lock().unwrap();
+                    let child_height = if lock_child.style().size.y > 0.0 { lock_child.style().size.y } else { 40.0 };
                     let positioned_rect = Rect::new(content_rect.x, current_y, content_rect.width, child_height);
-                    child.render(renderer, positioned_rect);
+                    lock_child.render(renderer, positioned_rect);
                     current_y += child_height + spacing;
                 }
             },
             LayoutType::Horizontal { spacing } => {
                 let mut current_x = content_rect.x;
                 for child in &mut self.children {
+                    let mut lock_child = child.lock().unwrap();
                     let positioned_rect = Rect::new(current_x, content_rect.y, 100.0, content_rect.height);
-                    child.render(renderer, positioned_rect);
+                    lock_child.render(renderer, positioned_rect);
                     current_x += 100.0 + spacing;
                 }
             },
@@ -112,7 +117,7 @@ impl Container {
                     let col = i % columns;
                     let cell_width = (content_rect.width - spacing * (columns - 1) as f32) / columns as f32;
                     let cell_height = 40.0;
-                    
+                    let mut lock_child = child.lock().unwrap();
                     let cell_rect = Rect::new(
                         content_rect.x + col as f32 * (cell_width + spacing),
                         content_rect.y + row as f32 * (cell_height + spacing),
@@ -120,12 +125,13 @@ impl Container {
                         cell_height
                     );
                     
-                    child.render(renderer, cell_rect);
+                    lock_child.render(renderer, cell_rect);
                 }
             },
             LayoutType::Stack => {
                 for child in &mut self.children {
-                    child.render(renderer, content_rect);
+                    let mut lock_child = child.lock().unwrap();
+                    lock_child.render(renderer, content_rect);
                 }
             }
         }
